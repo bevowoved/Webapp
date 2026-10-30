@@ -16,12 +16,19 @@ minimumReleaseAgeExclude:
 # The last three were added when the test suite landed:
 #   @jridgewell/sourcemap-codec 1.6.0  - required by the newer magic-string
 #   magic-string 1.4.5                 - vitest's transform pipeline
-#   lru-cache 11.5.3                   - RISKY: v5 -> v11 renames maxAge to ttl,
-#                                        so Babel's transform cache loses its
-#                                        5-minute expiry. Verified acceptable by
-#                                        planting a conditional-hooks violation
-#                                        and confirming react-hooks/rules-of-hooks
-#                                        still reports through the Babel path.
+#   lru-cache 11.5.3                   - see the note below.
+#
+# `lru-cache` is deliberately NOT pinned for @babel/helper-compilation-targets.
+# That package declares ^5.1.1 and builds its cache with `new LRUCache({max: 64})`
+# at module scope. In v5 `module.exports` is the class; from v9 the module is
+# named-export only (`{ LRUCache }`), so the constructor call receives an object
+# and throws `TypeError: _lruCache is not a constructor` on load. Forcing v11 on it
+# breaks every @babel/core operation (parseSync, transformSync). The scoped
+# override below keeps v5 where the contract requires it and v11 everywhere else.
+#
+# This means two lru-cache versions exist in the dev tree. That is intentional:
+# honouring a dependency's declared major outranks version deduplication, and
+# both versions are dev-only (nothing here ships lru-cache).
 overrides:
   lightningcss: "1.33.0"
   minimatch: "10.2.6"
@@ -34,3 +41,4 @@ overrides:
   "@jridgewell/sourcemap-codec": "1.6.0"
   "magic-string": "1.4.5"
   "lru-cache": "11.5.3"
+  "@babel/helper-compilation-targets>lru-cache": "5.1.1"
