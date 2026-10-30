@@ -229,6 +229,7 @@
     "noExport": "La exportación del horario no está disponible actualmente.",
     "warnExport": "Esto exportará tu horario como un archivo .ics que podrás importar en tu aplicación de calendario.",
     "exportSchedule": "Exportar el horario",
+    "exportError": "No se pudo exportar el horario",
     "calendar": {
       "untitledEvent": "Evento sin título",
       "teacher": "Profesor",

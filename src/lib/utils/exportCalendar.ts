@@ -6,15 +6,24 @@ import { toDate } from "./date-time";
 const escapeIcsText = (text: string): string =>
     text.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 
-const formatDateUTC = (date: Date) => date.toISOString().replace(/[-:]|\.\d{3}/g, "");
+// `toISOString` raises RangeError on an Invalid Date. The caller invokes the
+// export with `void`, so a throw here becomes an unhandled rejection: no file,
+// no toast, no feedback, and one unparseable lesson kills the whole export.
+// The previous `getUTC*()` implementation degraded to "NaN" instead of throwing,
+// so this also restores the old non-throwing behaviour.
+const formatDateUTC = (date: Date) =>
+    Number.isNaN(date.getTime()) ? "" : date.toISOString().replace(/[-:]|\.\d{3}/g, "");
 
-const buildIcsContent = (events: Lesson[]): string => {
+export const buildIcsContent = (events: Lesson[]): string => {
     const stamp = formatDateUTC(new Date());
     const vevents = events
         .map((lesson) => {
             const parsed = parseFromTitle(lesson);
             const start = toDate(lesson.start);
             const end = toDate(lesson.end);
+            // A lesson whose range cannot be represented in ICS is skipped rather
+            // than aborting the export for every other lesson.
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
             return [
                 "BEGIN:VEVENT",
                 `UID:${lesson.id}@mauria`,
@@ -29,6 +38,7 @@ const buildIcsContent = (events: Lesson[]): string => {
                 "END:VEVENT",
             ].join("\r\n");
         })
+        .filter((event): event is string => event !== null)
         .join("\r\n");
 
     return (

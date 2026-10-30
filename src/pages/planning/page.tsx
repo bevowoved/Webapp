@@ -126,7 +126,11 @@ export function PlanningPage() {
     };
 
     const handleExport = () => {
-        void exportCalendar(lessons);
+        // `void` alone discards the promise, so any rejection disappears without a
+        // trace: no file, no message, nothing to diagnose. Surface it instead.
+        exportCalendar(lessons).catch(() => {
+            toast.error(t("schedulePage.exportError"));
+        });
     };
 
     return (
