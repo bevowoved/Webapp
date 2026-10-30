@@ -127,7 +127,11 @@ const subjectAbbreviations: Array<{ match: RegExp; key: string }> = [
 ];
 
 const anchoredAbbreviations = subjectAbbreviations.map(({ match, key }) => ({
-    match: new RegExp(`(^|[^\\p{L}])(?:${match.source})`, "giu"),
+    // Anchored at the start of a word AND, where the pattern does not already
+    // end in a word-boundary-tolerant suffix, at the end of one. Without the
+    // trailing guard `anglais` matches the first seven letters of "Anglaise"
+    // and leaves a stray "e" behind ("Civilisation Angl.e").
+    match: new RegExp(`(^|[^\\p{L}])(?:${match.source})(?![\\p{L}])`, "giu"),
     key,
 }));
 

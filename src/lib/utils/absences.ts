@@ -38,7 +38,11 @@ export const getAbsencesDurations = (absences: Absence[]) => {
 
     for (const absence of absences) {
         const [hours, minutes] = absence.duration.split(":").map(Number);
+        // A duration Aurion sends as something other than "H:MM" must not poison
+        // the whole total: `Number("abc")` is NaN, and NaN propagates through
+        // every sum, so the card would read "NaNhNaN".
         const durationInMinutes = (hours ?? 0) * 60 + (minutes ?? 0);
+        if (!Number.isFinite(durationInMinutes)) continue;
         totalMinutes += durationInMinutes;
         if (isAbsenceJustified(absence)) justifiedMinutes += durationInMinutes;
         else unjustifiedMinutes += durationInMinutes;

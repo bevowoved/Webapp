@@ -65,5 +65,5 @@ export const formatExtraTimeLabel = (addedMs: number): string | null => {
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
     if (hours === 0) return `+${rest}m`;
-    return rest === 0 ? `+${hours}h` : `+${hours}h${rest}`;
+    return rest === 0 ? `+${hours}h` : `+${hours}h${rest.toString().padStart(2, "0")}`;
 };
