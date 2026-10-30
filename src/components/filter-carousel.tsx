@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
+import { usePrefersReducedMotion } from "@/lib/hooks/use-prefers-reduced-motion";
 import {
     useCallback,
     useEffect,
@@ -24,19 +25,24 @@ export function FilterCarousel({
     const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const didInitRef = useRef(false);
     const [sidePadding, setSidePadding] = useState(0);
+    const prefersReducedMotion = usePrefersReducedMotion();
 
     const selectedIndex = Math.max(
         0,
         items.findIndex((i) => i.value === selected)
     );
 
-    const centerIndex = useCallback((idx: number, behavior: ScrollBehavior) => {
-        itemRefs.current[idx]?.scrollIntoView({
-            behavior,
-            inline: "center",
-            block: "nearest",
-        });
-    }, []);
+    const centerIndex = useCallback(
+        (idx: number, behavior: ScrollBehavior) => {
+            itemRefs.current[idx]?.scrollIntoView({
+                // Smooth scrolling is non-essential motion (SC 2.3.3).
+                behavior: prefersReducedMotion ? "auto" : behavior,
+                inline: "center",
+                block: "nearest",
+            });
+        },
+        [prefersReducedMotion]
+    );
 
     useLayoutEffect(() => {
         const el = containerRef.current;

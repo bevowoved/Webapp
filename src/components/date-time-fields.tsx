@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { usePrefersReducedMotion } from "@/lib/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils/cn";
 import { getDateLocale } from "@/lib/utils/date-time";
 import { formatTime, pad } from "@/lib/utils/date-time";
@@ -134,6 +135,7 @@ const WheelColumn = ({
     const selectedRef = useRef(selected);
     const timer = useRef<number | null>(null);
     const mounted = useRef(false);
+    const prefersReducedMotion = usePrefersReducedMotion();
 
     useEffect(() => {
         selectedRef.current = selected;
@@ -153,10 +155,14 @@ const WheelColumn = ({
         setCentered(selected);
         ref.current?.scrollTo({
             top: selected * WHEEL_ITEM_HEIGHT,
-            behavior: mounted.current ? "smooth" : "auto",
+            // Smooth scrolling is motion the user did not ask for; SC 2.3.3
+            // requires it be disableable. `scroll-behavior: auto` in the
+            // reduced-motion block cannot override this explicit option, so
+            // the preference is consulted here too.
+            behavior: mounted.current && !prefersReducedMotion ? "smooth" : "auto",
         });
         mounted.current = true;
-    }, [selected]);
+    }, [selected, prefersReducedMotion]);
 
     const handleScroll = () => {
         const row = ref.current;

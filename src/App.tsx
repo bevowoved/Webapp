@@ -13,6 +13,7 @@ import { getSession } from "./lib/api/aurion";
 import { useAurionWarm } from "./lib/hooks/use-aurion-warm";
 import { useWidgetLanguageSync } from "./lib/native/widget";
 import { ThemeProvider } from "./components/theme-provider";
+import { MotionPreferences } from "./components/motion-preferences";
 import { BackgroundProvider } from "./components/background-provider";
 import { NotFound } from "./components/not-found";
 
@@ -237,16 +238,18 @@ function App() {
 
     return (
         <ThemeProvider>
-            <BackgroundProvider defaultBackground="particles">
-                <Suspense fallback={null}>
-                    <Toaster richColors position="top-center" />
-                </Suspense>
-                <BrowserRouter basename={routerBaseName}>
-                    <ReactQueryProvider>
-                        <AppRoutes />
-                    </ReactQueryProvider>
-                </BrowserRouter>
-            </BackgroundProvider>
+            <MotionPreferences>
+                <BackgroundProvider defaultBackground="particles">
+                    <Suspense fallback={null}>
+                        <Toaster richColors position="top-center" />
+                    </Suspense>
+                    <BrowserRouter basename={routerBaseName}>
+                        <ReactQueryProvider>
+                            <AppRoutes />
+                        </ReactQueryProvider>
+                    </BrowserRouter>
+                </BackgroundProvider>
+            </MotionPreferences>
         </ThemeProvider>
     );
 }
