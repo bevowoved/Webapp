@@ -1,11 +1,9 @@
 import { Lesson } from "@/types/aurion";
 import { PreparedLesson, HomeUpcoming } from "@/types/home";
 import i18n from "@/i18n";
-import { addDays, format, isAfter, isSameDay, isWithinInterval, startOfWeek } from "./date-time";
+import { addDays, format, isAfter, isSameDay, isWithinInterval, startOfWeek, toDate } from "./date-time";
 
-const normalizeOffset = (iso: string) => iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
-
-export const toDate = (s: string) => new Date(normalizeOffset(s));
+export { toDate };
 
 const timeRange = /^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/;
 
@@ -144,18 +142,13 @@ const termSuffix = /\s+-\s+\d*\s*(?:er|ère|e|ème|nd|nde)?\s*semestre\s*\d*$/i;
 export const formatLessonCourse = (courseTitle: string) => courseTitle.replace(termSuffix, "").trim();
 
 export function formatElapsed(since: string, now = Date.now()): string {
-    const minutes = Math.max(0, Math.floor((now - new Date(since).getTime()) / 60_000));
+    const minutes = Math.max(0, Math.floor((now - toDate(since).getTime()) / 60_000));
     if (minutes < 1) return "<1 min";
     if (minutes < 60) return `${minutes} min`;
     const hours = Math.floor(minutes / 60);
     if (hours >= 24) return `${hours} h`;
     return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
-
-export type LessonsDerived = {
-    parsed: Map<string, ParsedTitle>;
-    upcoming: HomeUpcoming;
-};
 
 type TimedLesson = { lesson: Lesson; start: Date; end: Date };
 
@@ -170,17 +163,7 @@ const toCourse = ({ lesson, start, end }: TimedLesson): PreparedLesson => {
     return { courseTitle, time: lessonTime(start, end), location, type, details: lesson, teacher };
 };
 
-const parsedCache = new WeakMap<Lesson[], Map<string, ParsedTitle>>();
 const upcomingCache = new WeakMap<Lesson[], HomeUpcoming>();
-
-export function parseLessons(lessons: Lesson[]): Map<string, ParsedTitle> {
-    const hit = parsedCache.get(lessons);
-    if (hit !== undefined) return hit;
-    const map = new Map<string, ParsedTitle>();
-    for (const lesson of lessons) map.set(lesson.id, parseFromTitle(lesson));
-    parsedCache.set(lessons, map);
-    return map;
-}
 
 export const getHomeUpcoming = ({ lessons }: { lessons: Lesson[] }): HomeUpcoming => {
     const hit = upcomingCache.get(lessons);

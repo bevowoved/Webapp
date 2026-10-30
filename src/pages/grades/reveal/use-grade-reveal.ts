@@ -94,11 +94,6 @@ export const mulberry32 = (seed: number): (() => number) => {
     };
 };
 
-export const seededSpread = (seed: number, count: number, spread: number): number[] => {
-    const random = mulberry32(seed);
-    return Array.from({ length: count }, () => (random() - 0.5) * spread);
-};
-
 export const trendTone = (above: boolean) => (above ? "#22c55e" : "#ef4444");
 
 export const trendBadgeStyle = (tone: string) => ({

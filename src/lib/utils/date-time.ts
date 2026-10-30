@@ -48,16 +48,20 @@ export const localeTag = (locale?: LocaleArg): string => {
     return "en-US";
 };
 
+const OFFSET_NO_COLON = /([+-]\d{2})(\d{2})$/;
+
+export const normalizeOffset = (iso: string): string => iso.replace(OFFSET_NO_COLON, "$1:$2");
+
 export const toDate = (value: Date | number | string): Date => {
     if (value instanceof Date) return new Date(value.getTime());
     if (typeof value === "number") return new Date(value);
-    return new Date(value);
+    return new Date(normalizeOffset(value));
 };
 
 export const toMs = (value: Date | number | string): number => {
     if (value instanceof Date) return value.getTime();
     if (typeof value === "number") return value;
-    return new Date(value).getTime();
+    return new Date(normalizeOffset(value)).getTime();
 };
 
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
@@ -110,46 +114,9 @@ const weekdayNames = (locale: LocaleArg, style: "long" | "short"): string[] => {
     return names;
 };
 
-const EN_ORDINAL_SUFFIX = new Map([["one", "st"], ["two", "nd"], ["few", "rd"], ["other", "th"]]);
-
-const EN_ORDINAL = new Intl.PluralRules("en-US", { type: "ordinal" });
-
-const ordinal = (n: number, locale: DateLocale): string =>
-    locale === "en"
-        ? `${n}${EN_ORDINAL_SUFFIX.get(EN_ORDINAL.select(n))}`
-        : locale === "es"
-          ? `${n}º`
-          : n === 1
-            ? `${n}er`
-            : `${n}ème`;
-
-const dayOfYear = (d: Date): number => {
-    const start = Date.UTC(d.getFullYear(), 0, 1);
-    const now = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-    return Math.floor((now - start) / MS_DAY) + 1;
-};
-
-const WEEK_FIRST_DAY: Record<DateLocale, number> = { fr: 1, en: 0, es: 1 };
-
-const WEEK_MINIMAL_DAYS: Record<DateLocale, number> = { fr: 4, en: 1, es: 1 };
-
-const weekStart = (d: Date, startsOn: number): number => addDays(startOfDay(d), -((d.getDay() - startsOn + 7) % 7)).getTime();
-
-const weekYearStart = (d: Date, startsOn: number, minimalDays: number): number => {
-    const anchor = new Date(d.getFullYear(), 0, minimalDays);
-    const next = new Date(d.getFullYear() + 1, 0, minimalDays);
-    const year = weekStart(d, startsOn) >= weekStart(next, startsOn) ? d.getFullYear() + 1 : weekStart(d, startsOn) < weekStart(anchor, startsOn) ? d.getFullYear() - 1 : d.getFullYear();
-    return weekStart(new Date(year, 0, minimalDays), startsOn);
-};
-
-const weekOfYear = (d: Date, loc: DateLocale): number =>
-    Math.round((weekStart(d, WEEK_FIRST_DAY[loc]) - weekYearStart(d, WEEK_FIRST_DAY[loc], WEEK_MINIMAL_DAYS[loc])) / (MS_DAY * 7)) + 1;
-
 const twelve = (h: number): number => (h % 12 === 0 ? 12 : h % 12);
 
 const meridiem = (h: number): string => (h < 12 ? "AM" : "PM");
-
-const quarter = (d: Date): number => Math.floor(d.getMonth() / 3) + 1;
 
 type TokenFn = (d: Date, loc: DateLocale) => string;
 
@@ -161,43 +128,28 @@ const dayLong: TokenFn = (d, l) => weekdayNames(l, "long")[d.getDay()]!;
 const dayShort: TokenFn = (d, l) => weekdayNames(l, "short")[d.getDay()]!;
 
 const TOKENS: Record<string, TokenFn> = {
-    yyyy: year, yyy: year, y: year,
-    yy: (d) => year(d).slice(-2),
+    yyyy: year,
     MMMM: monthLong, MMM: monthShort,
-    MM: (d) => pad(d.getMonth() + 1), M: (d) => String(d.getMonth() + 1),
-    Mo: (d, l) => ordinal(d.getMonth() + 1, l),
+    MM: (d) => pad(d.getMonth() + 1),
     dd: (d) => pad(d.getDate()), d: (d) => String(d.getDate()),
-    do: (d, l) => ordinal(d.getDate(), l),
-    EEEE: dayLong, eeee: dayLong, cccc: dayLong,
-    EEE: dayShort, EE: dayShort, E: dayShort, eee: dayShort, ccc: dayShort,
-    c: (d) => String(d.getDay() === 0 ? 7 : d.getDay()),
-    HH: (d) => pad(d.getHours()), H: (d) => String(d.getHours()),
-    hh: (d) => pad(twelve(d.getHours())), h: (d) => String(twelve(d.getHours())),
-    mm: (d) => pad(d.getMinutes()), m: (d) => String(d.getMinutes()),
-    ss: (d) => pad(d.getSeconds()), s: (d) => String(d.getSeconds()),
-    a: mer, aa: mer, aaa: mer,
-    DDD: (d) => String(dayOfYear(d)).padStart(3, "0"), D: (d) => String(dayOfYear(d)),
-    ww: (d, l) => pad(weekOfYear(d, l)), w: (d, l) => String(weekOfYear(d, l)),
-    Q: (d) => String(quarter(d)), q: (d) => String(quarter(d)),
-    X: (d) => String(Math.floor(d.getTime() / 1000)), x: (d) => String(d.getTime()),
+    EEEE: dayLong,
+    EEE: dayShort,
+    HH: (d) => pad(d.getHours()),
+    h: (d) => String(twelve(d.getHours())),
+    mm: (d) => pad(d.getMinutes()),
+    ss: (d) => pad(d.getSeconds()),
+    a: mer,
 };
 
 const TOKEN_BY_FIRST = Map.groupBy(Object.keys(TOKENS).sort((a, b) => b.length - a.length), (key) => key[0]!);
 
 const QUOTED = /^'(.*?)'/;
 
-const PRESETS: Record<string, string> = {
-    PPPP: "EEEE d MMMM yyyy",
-    PPP: "d MMMM yyyy",
-    PP: "d MMM yyyy",
-    P: "dd/MM/yyyy",
-};
-
 export function format(value: Date | number | string, pattern: string, options?: { locale?: LocaleArg }): string {
     const date = toDate(value);
     if (Number.isNaN(date.getTime())) return "Invalid Date";
     const loc = getDateLocale(typeof options?.locale === "string" ? options.locale : options?.locale?.code);
-    const src = PRESETS[pattern] ?? pattern;
+    const src = pattern;
     const parts: string[] = [];
     let i = 0;
     while (i < src.length) {

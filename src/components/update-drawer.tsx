@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { fetchUpdates } from "@/lib/api/helper";
+import { updatesQueryOptions } from "@/lib/api/helper";
 import { useQuery } from "@tanstack/react-query";
 import { UpdatesEntry } from "@/types/data";
 import { getFromStorage, saveToStorage } from "@/lib/utils/storage";
@@ -106,13 +106,7 @@ export function UpdateDrawer({
 export default function NewUpdateDrawer() {
     const [dismissed, setDismissed] = useState<string | null>(null);
 
-    const { data: updates } = useQuery({
-        queryKey: ["updates"],
-        queryFn: fetchUpdates,
-        staleTime: 1000 * 60 * 5,
-        gcTime: 1000 * 60 * 60 * 24,
-        refetchOnMount: true,
-    });
+    const { data: updates } = useQuery(updatesQueryOptions());
 
     const update = updates?.[0] ?? null;
     const version = update?.version ?? null;

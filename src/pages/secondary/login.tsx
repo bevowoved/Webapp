@@ -53,7 +53,18 @@ export function LoginPage() {
             if (response?.success) {
                 const prev = getFromStorage("email");
                 if (prev && prev !== email) clearLogoutState(true);
-                setSession(email, password);
+
+                // Storage can reject the write (private mode, blocked site data).
+                // Navigating anyway would bounce straight back here, because
+                // getSession() would read null. Refuse and explain instead.
+                if (!setSession(email, password)) {
+                    toast.error(t("login.storageBlockedTitle"), {
+                        description: t("login.storageBlockedBody"),
+                        duration: Number.POSITIVE_INFINITY,
+                    });
+                    setLoading(false);
+                    return;
+                }
 
                 let shouldShowWelcome = false;
                 try {

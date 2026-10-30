@@ -1,31 +1,20 @@
 import { Lesson } from "@/types/aurion";
 import i18n from "@/i18n";
 import { parseFromTitle } from "./home";
+import { toDate } from "./date-time";
 
 const escapeIcsText = (text: string): string =>
     text.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 
-const formatDateUTC = (date: Date) => {
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return (
-        date.getUTCFullYear().toString() +
-        pad(date.getUTCMonth() + 1) +
-        pad(date.getUTCDate()) +
-        "T" +
-        pad(date.getUTCHours()) +
-        pad(date.getUTCMinutes()) +
-        pad(date.getUTCSeconds()) +
-        "Z"
-    );
-};
+const formatDateUTC = (date: Date) => date.toISOString().replace(/[-:]|\.\d{3}/g, "");
 
 const buildIcsContent = (events: Lesson[]): string => {
     const stamp = formatDateUTC(new Date());
     const vevents = events
         .map((lesson) => {
             const parsed = parseFromTitle(lesson);
-            const start = new Date(lesson.start);
-            const end = new Date(lesson.end);
+            const start = toDate(lesson.start);
+            const end = toDate(lesson.end);
             return [
                 "BEGIN:VEVENT",
                 `UID:${lesson.id}@mauria`,

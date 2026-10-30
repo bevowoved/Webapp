@@ -74,6 +74,10 @@ export function parseGradeValue(raw?: string | null): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+export function parseGradeNumber(raw?: string | null): number {
+    return parseGradeValue(raw) ?? Number.NaN;
+}
+
 export function detectGradeScale(grade: Pick<Grade, "grade" | "average" | "median" | "min" | "max">): 10 | 20 {
     const values = [grade.grade, grade.average, grade.median, grade.min, grade.max]
         .map((v) => parseGradeValue(v))
@@ -108,10 +112,6 @@ export function gradeValueFrom(random: () => number): number {
     }
     const [, lo, hi] = band;
     return Math.round((lo + random() * (hi - lo)) * 10) / 10;
-}
-
-export function randomGradeValue(): number {
-    return gradeValueFrom(Math.random);
 }
 
 export function formatGradeValue(value: number): string {
@@ -276,15 +276,6 @@ type SubjectAcc = {
     classCoef: number;
 };
 
-export type GradesDerived = {
-    cleanedGrades: Grade[];
-    semesters: SemesterId[];
-    studentClass: StudentClass | null;
-    subjectCoeffs: Record<string, number>;
-    cirWeights: CirModuleWeight[] | null;
-};
-
-const derivedCache = new WeakMap<Grade[], GradesDerived>();
 const averagesCache = new WeakMap<Grade[], GradeAverages>();
 const evolutionCache = new WeakMap<Grade[], GradeEvolutionPoint[]>();
 
@@ -353,20 +344,6 @@ export function getGrades({ semesterKey, grades }: { semesterKey?: string | null
         if (semesterKey) return getGradeSemester(grade)?.key === semesterKey;
         return true;
     });
-}
-
-export function gradesDerived(grades: Grade[]): GradesDerived {
-    const hit = derivedCache.get(grades);
-    if (hit !== undefined) return hit;
-    const value: GradesDerived = {
-        cleanedGrades: getGrades({ grades }),
-        semesters: getGradeSemesters(grades),
-        studentClass: detectStudentClass(grades),
-        subjectCoeffs: getSubjectCoefficients(grades),
-        cirWeights: getCirModuleWeights(grades),
-    };
-    derivedCache.set(grades, value);
-    return value;
 }
 
 export function getGradeBadgeInfoFromCode(code?: string | null): GradeBadgeInfo | null {

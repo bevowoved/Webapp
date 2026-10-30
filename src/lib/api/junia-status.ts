@@ -53,9 +53,9 @@ const warm = (): WarmState | null => {
 
 const loginPlusHome = (times: AurionTimes | undefined): number | null => (times?.login != null && times.home != null ? times.login + times.home : null);
 
-export function markAurionSession(homeReadyInMs = 0): void {
+export function markAurionSession(homeReadyInMs = 0, email: string | null = getFromStorage("email")): void {
     const now = Date.now();
-    warmState = { warmFrom: now + homeReadyInMs, lastActivityAt: now, email: getFromStorage("email") };
+    warmState = { warmFrom: now + homeReadyInMs, lastActivityAt: now, email };
     saveToStorage(WARM_STATE_KEY, JSON.stringify(warmState));
 }
 

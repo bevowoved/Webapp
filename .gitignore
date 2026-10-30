@@ -57,3 +57,15 @@ Desktop.ini
 # Local tooling config (not needed to build, test, or deploy)
 .prettierrc
 components.json
+
+# Evidence artifacts referenced from review docs, not build inputs.
+# Tailwind v4 reads .gitignore when discovering sources, so this keeps class
+# names quoted in prose from compiling into the stylesheet.
+docs/evidence/
+
+# Working artifacts from the optimization effort. These are not build inputs
+# and must never ship: they are review notes, not source.
+CYCLE*-REPORT.txt
+CONSOLIDATION-REPORT.txt
+PR-DESCRIPTION.md
+docs/PR_BODY.md

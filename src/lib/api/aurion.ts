@@ -9,12 +9,11 @@ export { clearAurionSession, isAurionSessionWarm, isAurionWarmExpired, WARM_TTL_
 export const AURION_WARM_QUERY_KEY = ["aurionWarm"] as const;
 
 const DOCUMENT_TIMEOUT_MS = 45_000;
-const MINUTE_MS = 1000 * 60;
 const DOCUMENT_FIELDS = ["category", "docIndex", "downloadType", "submitParam", "selectName", "optionValue", "downloadButtonParam", "consulterParam"] as const;
 
 export async function ensureJuniaStatus(): Promise<JuniaStatus | null> {
     try {
-        return (await queryClient.ensureQueryData({ queryKey: ["juniaStatus"], queryFn: fetchJuniaStatus, staleTime: MINUTE_MS })) ?? null;
+        return (await queryClient.query({ queryKey: ["juniaStatus"], queryFn: fetchJuniaStatus, staleTime: "static" })) ?? null;
     } catch {
         return null;
     }
@@ -31,7 +30,7 @@ async function timedAurionFetch<T>(key: SlowQueryKey, fn: () => Promise<T>, stat
 export async function fetchUser({ email, password }: { email: string; password: string }) {
     return dedupe(`login:${email}`, async () => {
         const data = await apiRequest<{ success: boolean; error?: string }>("/aurion/login", "POST", { email, password });
-        if (data?.success) { markAurionSession(4500); void ensureJuniaStatus().then((s) => { if (s?.aurionTimes?.home != null) markAurionSession(s.aurionTimes.home); }); }
+        if (data?.success) { markAurionSession(4500, email); void ensureJuniaStatus().then((s) => { if (s?.aurionTimes?.home != null) markAurionSession(s.aurionTimes.home, email); }); }
         return data;
     });
 }

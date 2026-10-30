@@ -5,7 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UpdateDrawer } from "@/components/update-drawer";
-import { fetchUpdates } from "@/lib/api/helper";
+import { updatesQueryOptions } from "@/lib/api/helper";
 import { useQuery } from "@tanstack/react-query";
 import { UpdatesEntry } from "@/types/data";
 import { useTranslation } from "react-i18next";
@@ -16,13 +16,7 @@ export function VersionsPage() {
     const { t } = useTranslation();
     const [selected, setSelected] = useState<UpdatesEntry | null>(null);
 
-    const { data: updates, isLoading } = useQuery({
-        queryKey: ["updates"],
-        queryFn: fetchUpdates,
-        staleTime: 1000 * 60 * 5,
-        gcTime: 1000 * 60 * 60 * 24,
-        refetchOnMount: true,
-    });
+    const { data: updates, isLoading } = useQuery(updatesQueryOptions());
 
     return (
         <motion.div

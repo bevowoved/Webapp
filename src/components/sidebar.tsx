@@ -32,7 +32,7 @@ import { preloadRoute } from "@/App";
 import { useNavigate } from "react-router";
 import { applyScale, readInitialSize } from "@/lib/utils/scale";
 import { useQuery } from "@tanstack/react-query";
-import { fetchUpdates } from "@/lib/api/helper";
+import { updatesQueryOptions } from "@/lib/api/helper";
 import { useTranslation } from "react-i18next";
 import { clearLogoutState } from "@/lib/query-client";
 import { applyLocale, readInitialLocale } from "@/lib/utils/translations";
@@ -67,12 +67,7 @@ export default function Sidebar() {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const { setTheme } = useTheme();
-    const { data: updates } = useQuery({
-        queryKey: ["updates"],
-        queryFn: fetchUpdates,
-        staleTime: 1000 * 60 * 5,
-        gcTime: 1000 * 60 * 60 * 24,
-    });
+    const { data: updates } = useQuery(updatesQueryOptions());
     const appVersion = updates?.[0]?.version ?? "?";
 
     useEffect(() => {
@@ -134,6 +129,7 @@ export default function Sidebar() {
 
             <SheetContent
                 side="right"
+                closeLabel={t("common.close")}
                 className="w-[85%] sm:max-w-sm flex flex-col gap-2 border-none oled:bg-black px-5 pb-5 pt-[var(--sidebar-safe-area-top)]"
                 style={
                     {

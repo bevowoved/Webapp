@@ -3,11 +3,8 @@
 import { Grade } from "@/types/aurion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { parseGradeNumber } from "@/lib/utils/grades";
 
-function parseNum(val?: string | null): number {
-    if (!val) return NaN;
-    return parseFloat(val.replace(",", "."));
-}
 
 export type EvolutionPoint = {
     date: string;
@@ -270,11 +267,11 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
         return () => obs.disconnect();
     }, []);
 
-    const myGrade = parseNum(grade.grade);
-    const avg = parseNum(grade.average);
-    const median = parseNum(grade.median);
-    const min = parseNum(grade.min);
-    const max = parseNum(grade.max);
+    const myGrade = parseGradeNumber(grade.grade);
+    const avg = parseGradeNumber(grade.average);
+    const median = parseGradeNumber(grade.median);
+    const min = parseGradeNumber(grade.min);
+    const max = parseGradeNumber(grade.max);
 
     const allValues = [myGrade, avg, median, min, max].filter((v) => !isNaN(v) && v > 0);
     const scale = allValues.every((v) => v <= 10) ? 10 : 20;
@@ -296,7 +293,7 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
         { value: max, label: labelMax },
     ].filter((m) => !isNaN(m.value) && m.value > 0);
 
-    const sd = parseNum(grade.standardDeviation);
+    const sd = parseGradeNumber(grade.standardDeviation);
     const sdStart = !isNaN(avg) && !isNaN(sd) ? Math.max(0, avg - sd) : null;
     const sdEnd   = !isNaN(avg) && !isNaN(sd) ? Math.min(scale, avg + sd) : null;
 

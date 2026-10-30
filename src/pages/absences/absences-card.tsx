@@ -5,8 +5,16 @@ import { getDateLocale } from "@/lib/utils/translations";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { fadeInIndexed } from "@/lib/motion";
+import { isAbsenceJustified } from "@/lib/utils/absences";
+import { parseFrDate } from "@/lib/utils/grades";
 
 const MotionCard = motion.create(Card);
+
+const formatAbsenceDate = (raw: string, locale: ReturnType<typeof getDateLocale>): string => {
+    const date = parseFrDate(raw);
+    return date === null ? raw : format(date, "EEEE d MMM", { locale });
+};
+
 export function AbsenceCardAnimate({
     absence,
     index = 0,
@@ -16,7 +24,7 @@ export function AbsenceCardAnimate({
 }) {
     const { i18n } = useTranslation();
     const locale = getDateLocale(i18n.language);
-    const isJustified = !absence.type.toLowerCase().includes("non");
+    const isJustified = isAbsenceJustified(absence);
     return (
         <MotionCard
             layout
@@ -39,19 +47,7 @@ export function AbsenceCardAnimate({
                     <div className="text-lg font-medium">{absence.type}</div>
                     <div className="text-foreground">{absence.class}</div>
                     <div className="text-sm text-muted-foreground">
-                        {(() => {
-                            const [day, month, year] = absence.date.split("/");
-                            const fullYear =
-                                year.length === 2
-                                    ? 2000 + parseInt(year)
-                                    : parseInt(year);
-                            const date = new Date(
-                                fullYear,
-                                parseInt(month) - 1,
-                                parseInt(day)
-                            );
-                            return format(date, "EEEE d MMM", { locale });
-                        })()}
+                        {formatAbsenceDate(absence.date, locale)}
                         {", "}
                         {absence.time}
                     </div>
@@ -64,7 +60,7 @@ export function AbsenceCardAnimate({
 export function AbsenceCard({ absence }: { absence: Absence }) {
     const { i18n } = useTranslation();
     const locale = getDateLocale(i18n.language);
-    const isJustified = !absence.type.toLowerCase().includes("non");
+    const isJustified = isAbsenceJustified(absence);
     return (
         <Card className="border-none bg-white shadow-md transition-shadow dark:bg-mauria-card [content-visibility:auto] [contain-intrinsic-size:auto_72px]">
             <div className="flex p-4 items-center h-full">
@@ -79,19 +75,7 @@ export function AbsenceCard({ absence }: { absence: Absence }) {
                     <div className="text-lg font-medium">{absence.type}</div>
                     <div className="text-foreground">{absence.class}</div>
                     <div className="text-sm text-muted-foreground">
-                        {(() => {
-                            const [day, month, year] = absence.date.split("/");
-                            const fullYear =
-                                year.length === 2
-                                    ? 2000 + parseInt(year)
-                                    : parseInt(year);
-                            const date = new Date(
-                                fullYear,
-                                parseInt(month) - 1,
-                                parseInt(day)
-                            );
-                            return format(date, "EEEE d MMM", { locale });
-                        })()}
+                        {formatAbsenceDate(absence.date, locale)}
                         {", "}
                         {absence.time}
                     </div>

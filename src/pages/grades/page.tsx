@@ -19,10 +19,9 @@ import {
     isCirClass,
     getGradeSemesters,
     getCurrentSemesterKey,
-} from "@/lib/utils/grades";
-import {
     computeAverages,
     computeAverageEvolution,
+    parseFrDate,
 } from "@/lib/utils/grades";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWidgetGradesSync } from "@/lib/native/widget";
@@ -133,7 +132,7 @@ function GradesEvolutionChart({
     const formatXDate = (dateStr: string) => {
         try {
             return format(
-                new Date(dateStr.split("/").reverse().join("-")),
+                parseFrDate(dateStr) ?? new Date(NaN),
                 "d MMM",
                 {
                     locale: getDateLocale(i18n.language),
@@ -700,12 +699,8 @@ export function GradesPage() {
                                 <p>
                                     {selectedGrade.date
                                         ? format(
-                                              new Date(
-                                                  selectedGrade.date
-                                                      .split("/")
-                                                      .reverse()
-                                                      .join("-")
-                                              ),
+                                              parseFrDate(selectedGrade.date) ??
+                                                  new Date(NaN),
                                               "EEEE d MMM yyyy",
                                               {
                                                   locale: getDateLocale(

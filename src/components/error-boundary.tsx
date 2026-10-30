@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "./ui/button";
 import { useTranslation } from "react-i18next";
+import { captureException } from "@sentry/react";
 
 type Props = {
     children: React.ReactNode;
@@ -33,9 +34,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
     }
 
     componentDidCatch(error: unknown) {
-        void import("@sentry/react").then((Sentry) =>
-            Sentry.captureException(error)
-        );
+        // Static import: the SDK is initialised eagerly in main.tsx and lives in the
+        // entry chunk, so a dynamic import here would not split it out anyway.
+        captureException(error);
     }
 
     render() {

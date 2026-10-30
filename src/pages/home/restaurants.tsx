@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { isWeekend } from "@/lib/utils/date-time";
 import {
@@ -111,7 +111,7 @@ export function RestaurantsSection() {
         enabled: menuEnabled && hasRestaurant,
         staleTime: 1000 * 60 * 30, 
         gcTime: 1000 * 60 * 60 * 24, 
-        placeholderData: (previousData) => previousData,
+        placeholderData: keepPreviousData,
     });
 
     const [selected, setSelected] = useState<RestaurantMenu | null>(null);

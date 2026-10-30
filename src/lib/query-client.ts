@@ -48,9 +48,14 @@ export function createDoubleBufferedPersister(key = MAIN_KEY): Persister {
     const write = (): void => {
         if (!pending) return;
         const serialized = JSON.stringify(pending);
-        pending = null;
-        if (serialized === lastWrittenJson) return;
-        if (saveToStorage(bufferKey, serialized) && saveToStorage(key, serialized)) lastWrittenJson = serialized;
+        if (serialized === lastWrittenJson) {
+            pending = null;
+            return;
+        }
+        if (saveToStorage(bufferKey, serialized) && saveToStorage(key, serialized)) {
+            lastWrittenJson = serialized;
+            pending = null;
+        }
     };
 
     const clearPending = (): void => {

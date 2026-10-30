@@ -21,13 +21,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
 import {
     useBackground,
     type BackgroundName,
@@ -139,24 +133,10 @@ const SelectSetting = ({ setting }: { setting: SelectorSetting }) => (
             <Select
                 value={setting.selectValue}
                 onValueChange={setting.onValueChange}
-            >
-                <SelectTrigger
-                    className="h-8 w-[150px] justify-between rounded-md border border-border/50 px-2 text-xs focus:ring-0 focus:ring-offset-0"
-                    aria-label={setting.title}
-                >
-                    <SelectValue
-                        placeholder={setting.title}
-                        className="!items-end flex"
-                    />
-                </SelectTrigger>
-                <SelectContent className="text-xs">
-                    {setting.options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+                options={setting.options}
+                aria-label={setting.title}
+                className="h-8 w-[150px] text-xs"
+            />
         }
     />
 );
@@ -399,26 +379,13 @@ export function SettingsPage() {
                     <Select
                         value={gradeRevealMode}
                         onValueChange={handleGradeRevealModeChange}
-                    >
-                        <SelectTrigger
-                            className="h-8 w-[150px] justify-between rounded-md border border-border/50 px-2 text-xs focus:ring-0 focus:ring-offset-0"
-                            aria-label={t("settingsPage.gradeRevealMode.title")}
-                        >
-                            <SelectValue
-                                placeholder={t(
-                                    "settingsPage.gradeRevealMode.title"
-                                )}
-                                className="!items-end flex"
-                            />
-                        </SelectTrigger>
-                        <SelectContent className="text-xs">
-                            {GRADE_REVEAL_MODES.map((mode) => (
-                                <SelectItem key={mode} value={mode}>
-                                    {t(`settingsPage.gradeRevealMode.${mode}`)}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                        aria-label={t("settingsPage.gradeRevealMode.title")}
+                        className="h-8 w-[150px] text-xs"
+                        options={GRADE_REVEAL_MODES.map((mode) => ({
+                            value: mode,
+                            label: t(`settingsPage.gradeRevealMode.${mode}`),
+                        }))}
+                    />
                 }
             />
 

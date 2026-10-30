@@ -25,7 +25,7 @@ import { RestaurantsSection } from "./restaurants";
 import { DrawerPlanningContent } from "@/components/drawer-planning-content";
 import { PreparedLesson } from "@/types/home";
 import { useTranslation } from "react-i18next";
-import { addDays, startOfDay } from "@/lib/utils/date-time";
+import { addDays, startOfDay, toDate } from "@/lib/utils/date-time";
 
 
 export function HomePage() {
@@ -74,8 +74,8 @@ export function HomePage() {
             const midnight = startOfDay(addDays(new Date(now), 1)).getTime();
             let next = midnight;
             for (const l of resolvedLessons) {
-                const start = new Date(l.start).getTime();
-                const end = new Date(l.end).getTime();
+                const start = toDate(l.start).getTime();
+                const end = toDate(l.end).getTime();
                 if (start > now && start < next) next = start;
                 if (end > now && end < next) next = end;
             }

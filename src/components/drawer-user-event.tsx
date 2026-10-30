@@ -7,6 +7,7 @@ import {
     isSameDay,
     min,
     startOfDay,
+    toDate,
     startOfHour,
 } from "@/lib/utils/date-time";
 import { MapPin } from "lucide-react";
@@ -82,7 +83,7 @@ export function DrawerUserEvent({
         setSession({ open, userEvent, slot });
         if (open) {
             const range = userEvent
-                ? { start: new Date(userEvent.start), end: new Date(userEvent.end) }
+                ? { start: toDate(userEvent.start), end: toDate(userEvent.end) }
                 : (slot ?? defaultSlot());
             setTitle(userEvent?.title ?? "");
             setLocation(userEvent?.location ?? "");

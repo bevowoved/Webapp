@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils/cn";
 import { useFetchProgress } from "@/lib/hooks/use-fetch-progress";
 import { BLINK_EVENT, useJuniaStatus } from "@/lib/hooks/use-junia-status";
 import { ServerCrash } from "lucide-react";
+import { RouteBoundary } from "@/components/route-boundary";
 
 const Sidebar = lazy(() => import("@/components/sidebar"));
 const NewUpdateDrawer = lazy(() => import("@/components/update-drawer"));
@@ -281,7 +282,9 @@ export default function RootLayout() {
                     className="flex-1 px-4 pb-safe-offset-24 z-10"
                     key={location.pathname}
                 >
-                    <Outlet />
+                    <RouteBoundary scope={location.pathname}>
+                        <Outlet />
+                    </RouteBoundary>
                 </PageTransitionMemo>
             </AnimatePresence>
 

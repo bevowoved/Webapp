@@ -4,7 +4,9 @@
     "login": "Iniciar sesión",
     "enterAurionCredentials": "Introduce tus credenciales de Aurion para acceder a la app",
     "email": "Correo electrónico",
-    "password": "Contraseña"
+    "password": "Contraseña",
+    "storageBlockedTitle": "Almacenamiento no disponible",
+    "storageBlockedBody": "Tu navegador está bloqueando el almacenamiento del sitio, así que la sesión no se puede guardar. Permite las cookies y los datos del sitio y vuelve a intentarlo."
   },
   "welcome": {
     "mauria": "Mauria",

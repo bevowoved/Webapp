@@ -1,6 +1,7 @@
 import { AssociationData, DailyMenu, MessageEntry, UpdatesEntry } from "@/types/data";
 import { Building, RoomsForBuilding } from "@/types/findmyroom";
-import { getFromStorage, removeFromStorage, saveToStorage } from "../utils/storage";
+import { queryOptions } from "@tanstack/react-query";
+import { getFromStorage, removeFromStorage, saveToStorage, clearSessionStorage } from "../utils/storage";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "https://mauria-api.fly.dev";
 
@@ -25,8 +26,9 @@ export interface ColleGroup {
 export const EMPTY_MESSAGES: MessageEntry[] = Object.freeze([]) as unknown as MessageEntry[];
 
 const SESSION_HEADER_KEY = "aurionSessionHeader";
-const SESSION_KEYS = ["email", "password", "name"] as const;
-const DEFAULT_STALE_MS = 5 * 60 * 1000;
+export const MINUTE_MS = 1000 * 60;
+export const DAY_MS = MINUTE_MS * 60 * 24;
+export const DEFAULT_STALE_MS = MINUTE_MS * 5;
 const CACHE_MAX = 64;
 const FAST_PREFIXES = ["/associations", "/messages", "/updates", "/tools", "/lacatho/", "/crous/", "/findmyroom/", "/badjunia/"];
 
@@ -87,7 +89,7 @@ export function clearSessionScopedCaches(): void {
     updatesHeadVersion = null;
     updatesCache = null;
     removeFromStorage(SESSION_HEADER_KEY);
-    for (const key of SESSION_KEYS) removeFromStorage(key);
+    clearSessionStorage();
 }
 
 let completeLogout: ((remote: boolean) => void) | null = null;
@@ -142,10 +144,20 @@ export function getSession(): { email: string; password: string } | null {
     return email && password ? { email, password } : null;
 }
 
-export function setSession(email: string, password: string): void {
+/**
+ * Persists the session.
+ *
+ * Returns false when storage rejected the write. That happens in private modes and
+ * when the browser blocks site data — `saveToStorage` catches the SecurityError and
+ * reports failure rather than throwing. The caller MUST check this: navigating as if
+ * the session were stored sends the user straight back to /login, because
+ * `getSession()` then reads null. That is a silent infinite login loop.
+ */
+export function setSession(email: string, password: string): boolean {
     resetSessionGuard();
-    saveToStorage("email", email);
-    saveToStorage("password", password);
+    const wroteEmail = saveToStorage("email", email);
+    const wrotePassword = saveToStorage("password", password);
+    return wroteEmail && wrotePassword;
 }
 
 export function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
@@ -263,3 +275,11 @@ export async function fetchUpdates(): Promise<UpdatesEntry[] | null> {
     if (full) updatesCache = full;
     return full;
 }
+
+export const updatesQueryOptions = () =>
+    queryOptions({
+        queryKey: ["updates"],
+        queryFn: fetchUpdates,
+        staleTime: DEFAULT_STALE_MS,
+        gcTime: DAY_MS,
+    });

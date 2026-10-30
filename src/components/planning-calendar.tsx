@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { addDays, format, getDateLocale, isSameDay, isSunday, startOfWeek, toTime } from "@/lib/utils/date-time";
+import { addDays, format, getDateLocale, isSameDay, isSunday, startOfWeek, toDate, toTime } from "@/lib/utils/date-time";
 import { Lesson } from "@/types/aurion";
 import {
     abbreviateSubjects,
@@ -19,7 +19,6 @@ const SLOT_STEP = 30;
 const SLOT_COUNT = (SLOT_MAX - SLOT_MIN) / SLOT_STEP;
 const DRIFT_PX = 10;
 const SELECT_HOLD_MS = 200;
-const DAY_MS = 86_400_000;
 const SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => SLOT_MIN + i * SLOT_STEP);
 
 export type PlanningView = "timeGridWeek" | "timeGridDay";
@@ -59,7 +58,7 @@ type Props = {
 
 const minuteOfDay = (d: Date) => d.getHours() * 60 + d.getMinutes();
 
-const asDate = (value: string | Date) => (value instanceof Date ? value : new Date(value));
+const asDate = (value: string | Date) => (value instanceof Date ? value : toDate(value));
 
 const toArg = (lesson: Lesson, start: Date, end: Date): PlanningEventArg => ({
     event: {
@@ -74,7 +73,7 @@ const toArg = (lesson: Lesson, start: Date, end: Date): PlanningEventArg => ({
 });
 
 const placeLanes = <T extends { start: Date; end: Date }>(items: T[]) => {
-    const sorted = [...items].sort((a, b) => a.start.getTime() - b.start.getTime() || b.end.getTime() - a.end.getTime());
+    const sorted = items.toSorted((a, b) => a.start.getTime() - b.start.getTime() || b.end.getTime() - a.end.getTime());
     const rows: T[][] = [];
     const at = new Map<T, { lane: number; span: number }>();
     for (const item of sorted) {
@@ -102,8 +101,8 @@ const extraZones = (lesson: Lesson, start: Date, end: Date) => {
     const orig = lesson as unknown as { origStart?: string; origEnd?: string };
     if (total <= 0) return null;
     const clamp = (ms: number) => Math.max(0, Math.min(total, ms));
-    const lead = orig.origStart ? clamp(new Date(orig.origStart).getTime() - start.getTime()) : 0;
-    const trail = orig.origEnd ? clamp(end.getTime() - new Date(orig.origEnd).getTime()) : 0;
+    const lead = orig.origStart ? clamp(toDate(orig.origStart).getTime() - start.getTime()) : 0;
+    const trail = orig.origEnd ? clamp(end.getTime() - toDate(orig.origEnd).getTime()) : 0;
     if ((lead <= 0 && trail <= 0) || total <= lead + trail) return null;
     const pct = (ms: number) => `${(ms / total) * 100}%`;
     return { lead, trail, leadPct: pct(lead), trailTop: pct(total - trail), label: formatExtraTimeLabel(lead + trail), leadWins: lead > trail };
@@ -158,7 +157,7 @@ export const PlanningCalendar = memo(function PlanningCalendar({ lessons, eventS
     const byDay = useMemo(
         () =>
             days.map((day) => {
-                const dayEnd = new Date(day.getTime() + DAY_MS);
+                const dayEnd = addDays(day, 1);
                 return placeLanes(
                     all
                         .map((lesson) => ({ lesson, start: asDate(lesson.start), end: asDate(lesson.end) }))

@@ -71,8 +71,6 @@ function useCardTilt(disabled: boolean) {
             node.style.setProperty("--pointer-x", `${px}%`);
             node.style.setProperty("--pointer-y", `${py}%`);
             node.style.setProperty("--pointer-from-center", String(fromCenter));
-            node.style.setProperty("--pointer-from-top", String(py / 100));
-            node.style.setProperty("--pointer-from-left", String(px / 100));
             node.style.setProperty("--background-x", `${bgX}%`);
             node.style.setProperty("--background-y", `${bgY}%`);
             node.style.setProperty("--card-opacity", String(strength));
@@ -85,8 +83,6 @@ function useCardTilt(disabled: boolean) {
             node.style.setProperty("--pointer-x", "50%");
             node.style.setProperty("--pointer-y", "50%");
             node.style.setProperty("--pointer-from-center", "0");
-            node.style.setProperty("--pointer-from-top", "0.5");
-            node.style.setProperty("--pointer-from-left", "0.5");
             node.style.setProperty("--background-x", "50%");
             node.style.setProperty("--background-y", "50%");
             node.style.setProperty("--card-opacity", "0");
@@ -792,8 +788,6 @@ const STILL_HOLO = {
     "--pointer-x": "35%",
     "--pointer-y": "30%",
     "--pointer-from-center": "0.4",
-    "--pointer-from-top": "0.3",
-    "--pointer-from-left": "0.35",
     "--background-x": "46%",
     "--background-y": "43%",
     "--card-opacity": "0.8",
@@ -848,17 +842,32 @@ function CardStage({
     card,
     faceUp,
     onTap,
+    label,
 }: {
     card: BoosterCard;
     faceUp: boolean;
     onTap: () => void;
+    label: string;
 }) {
     const reducedMotion = useReducedMotion();
     const { ref: tiltRef } = useCardTilt(!faceUp);
     const width = stageWidth();
 
     return (
-        <div className="relative" style={{ perspective: 1200 }} onClick={onTap}>
+        <div
+            className="relative rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            style={{ perspective: 1200 }}
+            role="button"
+            tabIndex={0}
+            aria-label={label}
+            onClick={onTap}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onTap();
+                }
+            }}
+        >
             <div
                 ref={tiltRef}
                 className="transition-transform duration-200 ease-out"
@@ -1293,6 +1302,11 @@ function Booster({
                                     card={card}
                                     faceUp={faceUp}
                                     onTap={tapCard}
+                                    label={
+                                        faceUp
+                                            ? t("gradesPage.booster.tapToNext")
+                                            : t("gradesPage.booster.tapToFlip")
+                                    }
                                 />
                                 <AnimatePresence>
                                     {!faceUp && !reducedMotion && (

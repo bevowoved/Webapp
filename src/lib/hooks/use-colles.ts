@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { fetchAbsences, fetchDocuments, fetchGrades, fetchPlanning, getSession } from "@/lib/api/aurion";
-import { fetchColleGroup, getDynamicStaleTime } from "@/lib/api/helper";
+import { fetchColleGroup, getDynamicStaleTime, DAY_MS, DEFAULT_STALE_MS, MINUTE_MS } from "@/lib/api/helper";
 import { detectStudentClass, isCpgClass } from "@/lib/utils/grades";
 import { buildCollesLessons } from "@/lib/utils/colles";
 import { resolveDsLessons } from "@/lib/utils/ds";
@@ -14,9 +14,7 @@ export const EMPTY_LESSONS: Lesson[] = Object.freeze([]) as unknown as Lesson[];
 export const EMPTY_GRADES: Grade[] = Object.freeze([]) as unknown as Grade[];
 export const EMPTY_ABSENCES: Absence[] = Object.freeze([]) as unknown as Absence[];
 
-const DAY_MS = 1000 * 60 * 60 * 24;
-const DEFAULT_STALE_MS = 5 * 60 * 1000;
-const DOCUMENTS_STALE_MS = 10 * 60 * 1000;
+const DOCUMENTS_STALE_MS = MINUTE_MS * 10;
 
 const aurionOptions = <T>(key: string, path: string, fetch: () => Promise<{ success?: boolean; data?: T[] } | null>, empty: T[], enabled: boolean) =>
     queryOptions({
@@ -29,7 +27,6 @@ const aurionOptions = <T>(key: string, path: string, fetch: () => Promise<{ succ
         enabled,
         staleTime: (query) => getDynamicStaleTime(path, DEFAULT_STALE_MS, query.state.dataUpdatedAt),
         gcTime: DAY_MS,
-        refetchIntervalInBackground: false,
         refetchOnWindowFocus: true,
     });
 
@@ -62,9 +59,8 @@ export const documentsQueryOptions = (enabled = true) =>
         enabled,
         staleTime: (query) => getDynamicStaleTime("/aurion/documents", DOCUMENTS_STALE_MS, query.state.dataUpdatedAt),
         gcTime: DAY_MS,
-        refetchIntervalInBackground: false,
         refetchOnWindowFocus: true,
-        placeholderData: (previousData: DocumentsResult | undefined) => previousData,
+        placeholderData: keepPreviousData,
     });
 
 export function usePlanning(): Lesson[] {
@@ -86,7 +82,6 @@ function useColleGroup() {
             queryFn: () => (email ? fetchColleGroup(email, confirmedCpg) : null),
             staleTime: DAY_MS,
             gcTime: DAY_MS,
-            refetchIntervalInBackground: false,
             refetchOnWindowFocus: false,
         })
     );

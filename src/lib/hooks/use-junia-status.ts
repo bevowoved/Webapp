@@ -12,10 +12,8 @@ export const juniaStatusQueryOptions = () =>
         staleTime: () => getDynamicStaleTime("/badjunia/status", MINUTE_MS),
         gcTime: FRESH_MS,
         retry: false,
-        refetchOnMount: true,
         refetchOnWindowFocus: false,
         refetchInterval: MINUTE_MS,
-        refetchIntervalInBackground: false,
     });
 
 export function useJuniaStatus(): JuniaStatus | null {

@@ -62,17 +62,12 @@ let cachedRoomColles: { language: string; byRoom: Map<string, Lesson[]> } | null
 function allRoomColles(): Map<string, Lesson[]> {
     if (cachedRoomColles?.language === i18n.language) return cachedRoomColles.byRoom;
 
-    const byRoom = new Map<string, Lesson[]>();
-    for (const collesClass of COLLES_CLASSES) {
-        for (const group of Object.keys(collesClass.groups)) {
-            for (const lesson of buildColleLessons(collesClass, group)) {
-                const room = normalizeRoom(lesson.title.split("\n")[0] ?? "");
-                const bucket = byRoom.get(room);
-                if (bucket) bucket.push(lesson);
-                else byRoom.set(room, [lesson]);
-            }
-        }
-    }
+    const byRoom = Map.groupBy(
+        COLLES_CLASSES.flatMap((collesClass) =>
+            Object.keys(collesClass.groups).flatMap((group) => buildColleLessons(collesClass, group))
+        ),
+        (lesson) => normalizeRoom(lesson.title.split("\n")[0] ?? "")
+    );
 
     cachedRoomColles = { language: i18n.language, byRoom };
     return byRoom;

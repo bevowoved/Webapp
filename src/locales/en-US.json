@@ -4,7 +4,9 @@
     "login": "Login",
     "enterAurionCredentials": "Enter your Aurion credentials to access the app",
     "email": "Email",
-    "password": "Password"
+    "password": "Password",
+    "storageBlockedTitle": "Storage unavailable",
+    "storageBlockedBody": "Your browser is blocking site storage, so the session cannot be saved. Allow cookies and site data for this site, then try again."
   },
   "welcome": {
     "mauria": "Mauria",

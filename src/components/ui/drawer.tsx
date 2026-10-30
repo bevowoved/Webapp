@@ -1,40 +1,42 @@
 "use client";
 
 import * as React from "react";
-import { Drawer as DrawerPrimitive } from "vaul";
 
-import { cn } from "@/lib/utils/cn";
+import { cn, Slot } from "@/lib/utils/cn";
 
-function Drawer({
-    shouldScaleBackground = true,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) {
-    return (
-        <DrawerPrimitive.Root
-            shouldScaleBackground={shouldScaleBackground}
-            {...props}
-        />
-    );
+type DrawerContextValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+};
+
+const DrawerContext = React.createContext<DrawerContextValue | null>(null);
+
+function useDrawerContext(component: string): DrawerContextValue {
+    const context = React.useContext(DrawerContext);
+    if (!context) {
+        throw new Error(`${component} must be used within <Drawer>`);
+    }
+    return context;
 }
 
-const DrawerTrigger = DrawerPrimitive.Trigger;
+function Drawer({
+    open = false,
+    onOpenChange,
+    children,
+}: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children?: React.ReactNode;
+}) {
+    const value = React.useMemo<DrawerContextValue>(
+        () => ({ open, setOpen: (next) => onOpenChange?.(next) }),
+        [open, onOpenChange]
+    );
 
-const DrawerPortal = DrawerPrimitive.Portal;
-
-const DrawerClose = DrawerPrimitive.Close;
-
-function DrawerOverlay({
-    className,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
     return (
-        <DrawerPrimitive.Overlay
-            className={cn(
-                "fixed inset-0 z-50 bg-black/40 backdrop-blur-md supports-[backdrop-filter]:backdrop-blur-lg",
-                className
-            )}
-            {...props}
-        />
+        <DrawerContext.Provider value={value}>
+            {children}
+        </DrawerContext.Provider>
     );
 }
 
@@ -42,31 +44,49 @@ function DrawerContent({
     className,
     children,
     ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+}: React.ComponentProps<"dialog">) {
+    const { open, setOpen } = useDrawerContext("DrawerContent");
+    const ref = React.useRef<HTMLDialogElement>(null);
+
+    React.useEffect(() => {
+        const dialog = ref.current;
+        if (!dialog) return;
+        if (open && !dialog.open) {
+            dialog.showModal();
+        } else if (!open && dialog.open) {
+            dialog.close();
+        }
+    }, [open]);
+
+    React.useEffect(() => {
+        const dialog = ref.current;
+        if (!dialog) return;
+        const handleClose = () => setOpen(false);
+        dialog.addEventListener("close", handleClose);
+        return () => dialog.removeEventListener("close", handleClose);
+    }, [setOpen]);
+
     return (
-        <DrawerPortal>
-            <DrawerOverlay />
-            <DrawerPrimitive.Content
-                className={cn(
-                    "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] bg-background pb-safe",
-                    className
-                )}
-                {...props}
-            >
-                <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
-                {children}
-            </DrawerPrimitive.Content>
-        </DrawerPortal>
+        <dialog
+            ref={ref}
+            aria-modal="true"
+            className={cn(
+                "fixed inset-x-0 bottom-0 top-auto z-50 m-0 mt-24 h-auto max-h-[85dvh] w-full max-w-none flex-col rounded-t-[10px] border-0 bg-background p-0 pb-safe text-foreground backdrop:bg-black/40 backdrop:backdrop-blur-md",
+                className,
+                "hidden open:flex"
+            )}
+            {...props}
+        >
+            <div className="mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" />
+            {children}
+        </dialog>
     );
 }
 
 function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
     return (
         <div
-            className={cn(
-                "grid gap-1.5 p-4 text-center sm:text-left",
-                className
-            )}
+            className={cn("grid gap-1.5 p-4 text-center sm:text-left", className)}
             {...props}
         />
     );
@@ -81,12 +101,9 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
     );
 }
 
-function DrawerTitle({
-    className,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Title>) {
+function DrawerTitle({ className, ...props }: React.ComponentProps<"h2">) {
     return (
-        <DrawerPrimitive.Title
+        <h2
             className={cn(
                 "text-lg font-semibold leading-none tracking-tight",
                 className
@@ -96,27 +113,44 @@ function DrawerTitle({
     );
 }
 
-function DrawerDescription({
-    className,
-    ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Description>) {
+function DrawerDescription({ className, ...props }: React.ComponentProps<"p">) {
     return (
-        <DrawerPrimitive.Description
+        <p
             className={cn("text-sm text-muted-foreground", className)}
             {...props}
         />
     );
 }
 
+function DrawerClose({
+    asChild = false,
+    children,
+    onClick,
+    ...props
+}: React.ComponentProps<"button"> & { asChild?: boolean }) {
+    const { setOpen } = useDrawerContext("DrawerClose");
+    const Comp = asChild ? Slot : "button";
+
+    return (
+        <Comp
+            type={asChild ? undefined : "button"}
+            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                onClick?.(event);
+                if (!event.defaultPrevented) setOpen(false);
+            }}
+            {...props}
+        >
+            {children}
+        </Comp>
+    );
+}
+
 export {
     Drawer,
-    DrawerPortal,
-    DrawerOverlay,
-    DrawerTrigger,
-    DrawerClose,
     DrawerContent,
     DrawerHeader,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    DrawerClose,
 };

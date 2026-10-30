@@ -6,23 +6,19 @@ import { getDateLocale } from "@/lib/utils/translations";
 import { motion } from "framer-motion";
 import { ChevronsRight, SquareArrowOutDownRightIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { getGradeBadgeInfoFromCode } from "@/lib/utils/grades";
+import { getGradeBadgeInfoFromCode, parseFrDate, parseGradeNumber } from "@/lib/utils/grades";
 import { fadeInIndexed } from "@/lib/motion";
 import { REVEAL_CARD_THEMES, type RevealCardMode } from "./reveal/use-grade-reveal";
 
 const MotionCard = motion.create(Card);
 
-function parseGradeNum(val?: string | null): number {
-    if (!val) return NaN;
-    return parseFloat(val.replace(",", "."));
-}
 
 const CARD_CLASS =
     "relative cursor-pointer border-none bg-white shadow-md transition-transform duration-150 hover:-translate-y-0.5 dark:bg-mauria-card p-4 h-full overflow-visible";
 
 const gradeColorOf = (grade: Grade) => {
-    const gradeNum = parseGradeNum(grade.grade);
-    const avgNum = parseGradeNum(grade.average);
+    const gradeNum = parseGradeNumber(grade.grade);
+    const avgNum = parseGradeNumber(grade.average);
     if (isNaN(gradeNum) || isNaN(avgNum)) {
         return "text-mauria-accent dark:text-mauria-accent";
     }
@@ -66,12 +62,7 @@ const GradeCardBody = ({ grade }: { grade: Grade }) => {
                         <p>
                             {grade.date
                                 ? format(
-                                      new Date(
-                                          grade.date
-                                              .split("/")
-                                              .reverse()
-                                              .join("-")
-                                      ),
+                                      parseFrDate(grade.date) ?? new Date(NaN),
                                       "EEEE d MMM yyyy",
                                       { locale: getDateLocale(i18n.language) }
                                   )
@@ -225,12 +216,7 @@ export function UnopenedGradeCard({
                         >
                             {grade.date
                                 ? format(
-                                      new Date(
-                                          grade.date
-                                              .split("/")
-                                              .reverse()
-                                              .join("-")
-                                      ),
+                                      parseFrDate(grade.date) ?? new Date(NaN),
                                       "d MMM yyyy",
                                       { locale: getDateLocale(i18n.language) }
                                   )

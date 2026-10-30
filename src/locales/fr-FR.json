@@ -4,7 +4,9 @@
     "login": "Connexion",
     "enterAurionCredentials": "Entrez vos identifiants Aurion pour accéder à l'app",
     "email": "Email",
-    "password": "Mot de passe"
+    "password": "Mot de passe",
+    "storageBlockedTitle": "Stockage indisponible",
+    "storageBlockedBody": "Ton navigateur bloque le stockage du site, donc la session ne peut pas être conservée. Autorise les cookies et les données de site pour ce site, puis réessaie."
   },
   "welcome": {
     "mauria": "Mauria",

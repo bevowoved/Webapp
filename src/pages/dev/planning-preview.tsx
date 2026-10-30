@@ -3,13 +3,7 @@ import { motion } from "framer-motion";
 import { PlanningCalendar } from "@/components/planning-calendar";
 import { fadeIn, staggerGroup } from "@/lib/motion";
 import { Lesson } from "@/types/aurion";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
 
 const DEV_API_URL =
     import.meta.env.VITE_DEV_API_URL ?? "http://localhost:8080";
@@ -64,20 +58,15 @@ export function PlanningPreviewPage() {
 
             <motion.div variants={fadeIn} className="mb-4 max-w-xs">
                 <Select
-                    value={selected ?? undefined}
+                    value={selected ?? ""}
                     onValueChange={setSelected}
-                >
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choisir une filière" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {fixtures.map((fixture) => (
-                            <SelectItem key={fixture.file} value={fixture.file}>
-                                {fixture.label} ({fixture.events})
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                    placeholder="Choisir une filière"
+                    aria-label="Choisir une filière"
+                    options={fixtures.map((fixture) => ({
+                        value: fixture.file,
+                        label: `${fixture.label} (${fixture.events})`,
+                    }))}
+                />
             </motion.div>
 
             <motion.section

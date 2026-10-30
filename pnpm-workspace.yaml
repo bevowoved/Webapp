@@ -1,6 +1,36 @@
+# pnpm 12 workspace config.
+#
+# `minimumReleaseAgeStrict` blocks installs of packages published very recently,
+# which is a supply-chain guard. The exclude list names the exact versions this
+# project pins and has reviewed; without it a frozen install fails on them.
+minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
   - lucide-react@1.63.0
   - framer-motion@14.7.1
   - motion-dom@14.7.1
   - motion-utils@14.7.0
   - react-router@8.5.1
+
+# Version pins for transitive dependencies.
+#
+# The last three were added when the test suite landed:
+#   @jridgewell/sourcemap-codec 1.6.0  - required by the newer magic-string
+#   magic-string 1.4.5                 - vitest's transform pipeline
+#   lru-cache 11.5.3                   - RISKY: v5 -> v11 renames maxAge to ttl,
+#                                        so Babel's transform cache loses its
+#                                        5-minute expiry. Verified acceptable by
+#                                        planting a conditional-hooks violation
+#                                        and confirming react-hooks/rules-of-hooks
+#                                        still reports through the Babel path.
+overrides:
+  lightningcss: "1.33.0"
+  minimatch: "10.2.6"
+  source-map-js: "1.2.2"
+  tinyglobby: "0.2.17"
+  eslint-visitor-keys: "5.0.1"
+  hookified: "3.1.0"
+  ignore: "7.0.14"
+  semver: "7.8.5"
+  "@jridgewell/sourcemap-codec": "1.6.0"
+  "magic-string": "1.4.5"
+  "lru-cache": "11.5.3"

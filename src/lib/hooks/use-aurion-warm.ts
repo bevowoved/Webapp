@@ -12,7 +12,6 @@ export const aurionWarmQueryOptions = (enabled: boolean) =>
         enabled,
         staleTime: () => (isAurionWarmExpired() ? 0 : Infinity),
         gcTime: DAY_MS,
-        refetchIntervalInBackground: false,
         refetchOnWindowFocus: false,
     });
 

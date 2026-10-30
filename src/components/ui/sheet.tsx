@@ -1,43 +1,76 @@
 "use client";
 
 import * as React from "react";
-import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 
-import { cn, cva, type VariantProps } from "@/lib/utils/cn";
+import { cn, cva, Slot, type VariantProps } from "@/lib/utils/cn";
 
-const Sheet = SheetPrimitive.Root;
+type SheetContextValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+};
 
-const SheetTrigger = SheetPrimitive.Trigger;
+const SheetContext = React.createContext<SheetContextValue | null>(null);
 
-const SheetClose = SheetPrimitive.Close;
+function useSheetContext(component: string): SheetContextValue {
+    const context = React.useContext(SheetContext);
+    if (!context) {
+        throw new Error(`${component} must be used within <Sheet>`);
+    }
+    return context;
+}
 
-const SheetPortal = SheetPrimitive.Portal;
+function Sheet({
+    open = false,
+    onOpenChange,
+    children,
+}: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children?: React.ReactNode;
+}) {
+    const value = React.useMemo<SheetContextValue>(
+        () => ({ open, setOpen: (next) => onOpenChange?.(next) }),
+        [open, onOpenChange]
+    );
 
-function SheetOverlay({
-    className,
-    ...props
-}: React.ComponentProps<typeof SheetPrimitive.Overlay>) {
     return (
-        <SheetPrimitive.Overlay
-            className={cn(
-                "fixed inset-0 z-50 bg-black/40 backdrop-blur-md supports-[backdrop-filter]:backdrop-blur-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-                className
-            )}
+        <SheetContext.Provider value={value}>{children}</SheetContext.Provider>
+    );
+}
+
+function SheetTrigger({
+    asChild = false,
+    children,
+    onClick,
+    ...props
+}: React.ComponentProps<"button"> & { asChild?: boolean }) {
+    const { setOpen } = useSheetContext("SheetTrigger");
+    const Comp = asChild ? Slot : "button";
+
+    return (
+        <Comp
+            type={asChild ? undefined : "button"}
+            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                onClick?.(event);
+                if (!event.defaultPrevented) setOpen(true);
+            }}
             {...props}
-        />
+        >
+            {children}
+        </Comp>
     );
 }
 
 const sheetVariants = cva(
-    "fixed z-50 gap-4 bg-background shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+    "fixed z-50 gap-4 border-0 bg-background p-0 text-foreground shadow-lg backdrop:bg-black/40 backdrop:backdrop-blur-md",
     {
         variants: {
             side: {
-                top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
-                bottom: "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-                left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
-                right: "inset-y-0 right-0 h-full w-3/4  border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+                top: "inset-x-0 top-0 bottom-auto m-0 w-full max-w-none rounded-b-lg border-b",
+                bottom: "inset-x-0 bottom-0 top-auto m-0 w-full max-w-none rounded-t-lg border-t",
+                left: "inset-y-0 left-0 right-auto m-0 h-full w-3/4 max-w-none rounded-r-lg border-r sm:max-w-sm",
+                right: "inset-y-0 right-0 left-auto m-0 h-full w-3/4 max-w-none rounded-l-lg border-l sm:max-w-sm",
             },
         },
         defaultVariants: {
@@ -46,7 +79,7 @@ const sheetVariants = cva(
     }
 );
 
-type SheetContentProps = React.ComponentProps<typeof SheetPrimitive.Content> &
+type SheetContentProps = React.ComponentProps<"dialog"> &
     VariantProps<typeof sheetVariants>;
 
 const sheetSafePadding: Record<
@@ -63,29 +96,54 @@ function SheetContent({
     side = "right",
     className,
     children,
-    ref,
+    closeLabel,
     ...props
-}: SheetContentProps) {
+}: SheetContentProps & { closeLabel: string }) {
+    const { open, setOpen } = useSheetContext("SheetContent");
+    const ref = React.useRef<HTMLDialogElement>(null);
     const currentSide = side ?? "right";
 
+    React.useEffect(() => {
+        const dialog = ref.current;
+        if (!dialog) return;
+        if (open && !dialog.open) {
+            dialog.showModal();
+        } else if (!open && dialog.open) {
+            dialog.close();
+        }
+    }, [open]);
+
+    React.useEffect(() => {
+        const dialog = ref.current;
+        if (!dialog) return;
+        const handleClose = () => setOpen(false);
+        dialog.addEventListener("close", handleClose);
+        return () => dialog.removeEventListener("close", handleClose);
+    }, [setOpen]);
+
     return (
-        <SheetPortal>
-            <SheetOverlay />
-            <SheetPrimitive.Content
-                ref={ref}
-                className={cn(
-                    sheetVariants({ side: currentSide }),
-                    sheetSafePadding[currentSide],
-                    className
-                )}
-                {...props}
+        <dialog
+            ref={ref}
+            aria-modal="true"
+            className={cn(
+                sheetVariants({ side: currentSide }),
+                sheetSafePadding[currentSide],
+                "flex-col",
+                className,
+                "hidden open:flex"
+            )}
+            {...props}
+        >
+            {children}
+            <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label={closeLabel}
+                className="absolute right-[var(--sheet-close-right,calc(var(--safe-area-right,0px)+1rem))] top-[var(--sheet-close-top,calc(var(--safe-area-top,0px)+1rem))] flex h-[2rem] w-[2rem] items-center justify-center rounded-sm opacity-70 ring-offset-background transition-all hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none"
             >
-                {children}
-                <SheetPrimitive.Close className="absolute right-[var(--sheet-close-right,calc(var(--safe-area-right,0px)+1rem))] top-[var(--sheet-close-top,calc(var(--safe-area-top,0px)+1rem))] flex h-[2rem] w-[2rem] items-center justify-center rounded-sm opacity-70 ring-offset-background transition-all hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-                    <X className="h-[1.5rem] w-[1.5rem]" />
-                </SheetPrimitive.Close>
-            </SheetPrimitive.Content>
-        </SheetPortal>
+                <X className="h-[1.5rem] w-[1.5rem]" aria-hidden="true" />
+            </button>
+        </dialog>
     );
 }
 
@@ -113,25 +171,10 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
     );
 }
 
-function SheetTitle({
-    className,
-    ...props
-}: React.ComponentProps<typeof SheetPrimitive.Title>) {
+function SheetTitle({ className, ...props }: React.ComponentProps<"h2">) {
     return (
-        <SheetPrimitive.Title
+        <h2
             className={cn("text-lg font-semibold text-foreground", className)}
-            {...props}
-        />
-    );
-}
-
-function SheetDescription({
-    className,
-    ...props
-}: React.ComponentProps<typeof SheetPrimitive.Description>) {
-    return (
-        <SheetPrimitive.Description
-            className={cn("text-sm text-muted-foreground", className)}
             {...props}
         />
     );
@@ -139,13 +182,9 @@ function SheetDescription({
 
 export {
     Sheet,
-    SheetPortal,
-    SheetOverlay,
     SheetTrigger,
-    SheetClose,
     SheetContent,
     SheetHeader,
     SheetFooter,
     SheetTitle,
-    SheetDescription,
 };

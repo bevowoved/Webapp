@@ -1,7 +1,7 @@
 import { getDateLocale } from "@/lib/utils/translations";
 import { DrawerContent, DrawerTitle, Drawer } from "./ui/drawer";
 import { Separator } from "@/components/ui/separator";
-import { format } from "@/lib/utils/date-time";
+import { format, toDate } from "@/lib/utils/date-time";
 import { PreparedLesson } from "@/types/home";
 import {
     BookOpen,
@@ -117,7 +117,7 @@ export function DrawerPlanningContent({
                                     </span>
                                     <p className="text-gray-900 dark:text-white truncate">
                                         {format(
-                                            new Date(eventInfo.details.start),
+                                            toDate(eventInfo.details.start),
                                             "EEEE d MMM",
                                             { locale }
                                         )}
@@ -133,12 +133,8 @@ export function DrawerPlanningContent({
                                     </span>
                                     <p className="text-gray-900 dark:text-white truncate">
                                         {(() => {
-                                            const start = new Date(
-                                                eventInfo.details.start
-                                            );
-                                            const end = new Date(
-                                                eventInfo.details.end
-                                            );
+                                            const start = toDate(eventInfo.details.start);
+                                            const end = toDate(eventInfo.details.end);
                                             const diffMs =
                                                 end.getTime() - start.getTime();
                                             const hours = Math.floor(
@@ -171,7 +167,7 @@ export function DrawerPlanningContent({
                                     </span>
                                     <p className="text-gray-900 dark:text-white truncate">
                                         {format(
-                                            new Date(eventInfo.details.start),
+                                            toDate(eventInfo.details.start),
                                             "HH'h'mm",
                                             { locale }
                                         )}
@@ -187,7 +183,7 @@ export function DrawerPlanningContent({
                                     </span>
                                     <p className="text-gray-900 dark:text-white truncate">
                                         {format(
-                                            new Date(eventInfo.details.end),
+                                            toDate(eventInfo.details.end),
                                             "HH'h'mm",
                                             { locale }
                                         )}

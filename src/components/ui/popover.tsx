@@ -1,30 +1,143 @@
+"use client";
+
 import * as React from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 
-import { cn } from "@/lib/utils/cn";
+import { cn, Slot } from "@/lib/utils/cn";
 
-const Popover = PopoverPrimitive.Root;
+type PopoverContextValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+    triggerId: string;
+    contentId: string;
+    setContentId: (id: string) => void;
+    anchorName: string;
+};
 
-const PopoverTrigger = PopoverPrimitive.Trigger;
+const PopoverContext = React.createContext<PopoverContextValue | null>(null);
+
+function usePopoverContext(component: string): PopoverContextValue {
+    const context = React.useContext(PopoverContext);
+    if (!context) {
+        throw new Error(`${component} must be used within <Popover>`);
+    }
+    return context;
+}
+
+function Popover({
+    open = false,
+    onOpenChange,
+    children,
+}: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children?: React.ReactNode;
+}) {
+    const id = React.useId();
+    const anchorName = `popover-anchor-${id}`;
+    const [contentId, setContentId] = React.useState(`popover-content-${id}`);
+    const value = React.useMemo<PopoverContextValue>(
+        () => ({
+            open,
+            setOpen: (next) => onOpenChange?.(next),
+            triggerId: `popover-trigger-${id}`,
+            contentId,
+            setContentId,
+            anchorName,
+        }),
+        [open, onOpenChange, id, anchorName, contentId]
+    );
+
+    return (
+        <PopoverContext.Provider value={value}>
+            <span className="relative inline-flex">{children}</span>
+        </PopoverContext.Provider>
+    );
+}
+
+function PopoverTrigger({
+    asChild = false,
+    children,
+    onClick,
+    ...props
+}: React.ComponentProps<"button"> & { asChild?: boolean }) {
+    const { open, setOpen, contentId, anchorName } = usePopoverContext(
+        "PopoverTrigger"
+    );
+    const Comp = asChild ? Slot : "button";
+
+    return (
+        <Comp
+            type={asChild ? undefined : "button"}
+            style={{ anchorName: `--${anchorName}` }}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls={open ? contentId : undefined}
+            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                onClick?.(event);
+                if (!event.defaultPrevented) setOpen(!open);
+            }}
+            {...props}
+        >
+            {children}
+        </Comp>
+    );
+}
 
 function PopoverContent({
     className,
+    children,
     align = "center",
-    sideOffset = 4,
+    id,
+    style,
     ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<"div"> & { align?: "start" | "center" | "end" }) {
+    const { open, setOpen, contentId, setContentId, anchorName } =
+        usePopoverContext("PopoverContent");
+    const ref = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (id) setContentId(id);
+    }, [id, setContentId]);
+
+    React.useEffect(() => {
+        const node = ref.current;
+        if (!node) return;
+        if (open && !node.matches(":popover-open")) {
+            node.showPopover();
+        } else if (!open && node.matches(":popover-open")) {
+            node.hidePopover();
+        }
+    }, [open]);
+
+    React.useEffect(() => {
+        const node = ref.current;
+        if (!node) return;
+        const handleToggle = (event: Event) => {
+            const next = (event as ToggleEvent).newState === "open";
+            if (!next) setOpen(false);
+        };
+        node.addEventListener("toggle", handleToggle);
+        return () => node.removeEventListener("toggle", handleToggle);
+    }, [setOpen]);
+
     return (
-        <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-                align={align}
-                sideOffset={sideOffset}
-                className={cn(
-                    "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-                    className
-                )}
-                {...props}
-            />
-        </PopoverPrimitive.Portal>
+        <div
+            {...props}
+            ref={ref}
+            id={id ?? contentId}
+            popover="auto"
+            role="dialog"
+            style={{ positionAnchor: `--${anchorName}`, ...style }}
+            className={cn(
+                "m-0 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md",
+                align === "start" && "[position-area:bottom_span-right]",
+                align === "center" && "[position-area:bottom]",
+                align === "end" && "[position-area:bottom_span-left]",
+                className
+            )}
+        >
+            {children}
+        </div>
     );
 }
 

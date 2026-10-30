@@ -46,7 +46,6 @@ const feedOptions = <T>(key: string, path: string, fetch: () => Promise<T | null
         staleTime: getDynamicStaleTime(path, staleMs),
         gcTime: DAY_MS,
         refetchOnWindowFocus: false,
-        refetchIntervalInBackground: false,
         retry: 1,
     });
 
