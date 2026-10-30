@@ -84,7 +84,9 @@
     "next": "Next",
     "morePages": "More pages",
     "allSemesters": "All",
-    "semesterLabel": "S{{sem}} {{year}}"
+    "semesterLabel": "S{{sem}} {{year}}",
+    "notFound": "Page not found",
+    "notFoundBody": "This address does not exist. You can go back to the home page."
   },
   "carousel": {
     "previousSlide": "See previous",

@@ -84,7 +84,9 @@
     "next": "Siguiente",
     "morePages": "Más páginas",
     "allSemesters": "Todas",
-    "semesterLabel": "S{{sem}} {{year}}"
+    "semesterLabel": "S{{sem}} {{year}}",
+    "notFound": "Página no encontrada",
+    "notFoundBody": "Esta dirección no existe. Puedes volver al inicio."
   },
   "carousel": {
     "previousSlide": "Ver anterior",

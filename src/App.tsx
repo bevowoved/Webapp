@@ -14,6 +14,7 @@ import { useAurionWarm } from "./lib/hooks/use-aurion-warm";
 import { useWidgetLanguageSync } from "./lib/native/widget";
 import { ThemeProvider } from "./components/theme-provider";
 import { BackgroundProvider } from "./components/background-provider";
+import { NotFound } from "./components/not-found";
 
 const Toaster = lazy(() =>
     import("@/components/ui/sonner").then((m) => ({ default: m.Toaster }))
@@ -210,6 +211,9 @@ function AppRoutes() {
                     <Route path="/agenda" element={<AgendaPage />} />
                     <Route path="/versions" element={<VersionsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
+                    {/* Unknown URLs render inside the shell so the user keeps
+                        navigation; without this the page is entirely blank. */}
+                    <Route path="*" element={<NotFound />} />
                 </Route>
             </Routes>
         </Suspense>
