@@ -12,49 +12,45 @@ import { useTranslation } from "react-i18next";
 
 import { Grade } from "@/types/aurion";
 import { Button } from "@/components/ui/button";
-import { GRADE_SCALE } from "@/lib/utils/grade-rarity";
-import { formatTicketSerial, useGradeReveal } from "./use-grade-reveal";
+import { GRADE_SCALE } from "@/lib/utils/grades";
+import { triggerHapticPattern } from "@/lib/utils/sfx";
+import {
+    formatDelta,
+    formatTicketSerial,
+    hashSeed,
+    mulberry32,
+    TREND_BADGE_CLASS,
+    TREND_LABEL_CLASS,
+    TREND_VALUE_CLASS,
+    trendBadgeStyle,
+    trendLabelKey,
+    useGradeReveal,
+} from "./use-grade-reveal";
 
-/** Share of the foil that has to go before the ticket opens itself */
 const SCRATCH_THRESHOLD = 0.45;
 const BRUSH_RADIUS = 26;
-/** Alpha sampling step, in device pixels: cheap enough to run while scratching */
-const SAMPLE_STEP = 8;
+const SAMPLE_STRIDE = 16;
+const MEASURE_THROTTLE_MS = 120;
 
-const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(pattern);
-    }
-};
+const vibrate = (pattern: number | number[]) => triggerHapticPattern(pattern);
 
-/** Deterministic PRNG, so a ticket keeps its barcode across openings */
-const mulberry32 = (seed: number) => () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
+const COIN_DISCS = [-0.5, -0.25, 0, 0.25, 0.5];
 
-/** Four-pointed twinkle, as printed all over real scratch tickets */
 const STAR_CLIP =
     "polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%)";
 
-/** The "up to 20/20!" price flash, a 16-spike starburst */
 const STARBURST_CLIP = `polygon(${Array.from({ length: 32 }, (_, index) => {
     const angle = (index / 32) * Math.PI * 2;
     const radius = index % 2 === 0 ? 50 : 41;
     return `${(50 + radius * Math.cos(angle)).toFixed(2)}% ${(50 + radius * Math.sin(angle)).toFixed(2)}%`;
 }).join(", ")})`;
 
-/** Chunky gold logo lettering, extruded downwards */
 const LOGO_SHADOW =
     "0 1px 0 #d97706, 0 2px 0 #b45309, 0 3px 0 #92400e, 0 4px 0 #78350f, 0 7px 12px rgba(0,0,0,0.55)";
 
-/** Security print under the foil, the fine rings of a banknote */
 const GUILLOCHE =
     "repeating-radial-gradient(circle at 18% 30%, rgba(5,150,105,0.08) 0 1px, transparent 1px 7px), repeating-radial-gradient(circle at 82% 72%, rgba(217,119,6,0.08) 0 1px, transparent 1px 7px)";
 
-/** Half-circle cut-outs on one edge, the two halves of the tear-off line */
 const perforationMask = (edge: "top" | "bottom") => {
     const y = edge === "top" ? "0" : "100%";
     return `radial-gradient(circle 11px at 0 ${y}, transparent 98%, #000 100%) left / 51% 100% no-repeat, radial-gradient(circle 11px at 100% ${y}, transparent 98%, #000 100%) right / 51% 100% no-repeat`;
@@ -63,19 +59,17 @@ const perforationMask = (edge: "top" | "bottom") => {
 const GOLD_COIN =
     "radial-gradient(circle at 32% 28%, #fffbeb, #fde047 30%, #eab308 62%, #a16207)";
 
-/** Glints twinkling on the untouched foil, begging to be scratched */
 function FoilGlints({ cleared }: { cleared: boolean }) {
-    const glints = useMemo(
-        () =>
-            Array.from({ length: 6 }, () => ({
-                left: 8 + Math.random() * 84,
-                top: 12 + Math.random() * 76,
-                size: 10 + Math.random() * 8,
-                delay: Math.random() * 2.4,
-                pause: 1.2 + Math.random() * 1.6,
-            })),
-        []
-    );
+    const glints = useMemo(() => {
+        const random = mulberry32(hashSeed("foil-glints"));
+        return Array.from({ length: 6 }, () => ({
+            left: 8 + random() * 84,
+            top: 12 + random() * 76,
+            size: 10 + random() * 8,
+            delay: random() * 2.4,
+            pause: 1.2 + random() * 1.6,
+        }));
+    }, []);
 
     return (
         <div
@@ -115,7 +109,6 @@ function FoilGlints({ cleared }: { cleared: boolean }) {
 
 type Flake = { id: number; x: number; y: number; drift: number; spin: number };
 
-/** The silver foil: an opaque canvas the user erases with the pointer. */
 function ScratchFoil({
     label,
     cleared,
@@ -130,13 +123,14 @@ function ScratchFoil({
     const coinRef = useRef<HTMLSpanElement>(null);
     const strokes = useRef(0);
     const done = useRef(false);
-    // Foil shavings falling off the coin while scratching
+
     const [flakes, setFlakes] = useState<Flake[]>([]);
     const flakeId = useRef(0);
+    const lastMeasure = useRef(0);
 
     const paintFoil = useCallback(
         (canvas: HTMLCanvasElement) => {
-            const ctx = canvas.getContext("2d");
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
             if (!ctx) return;
 
             const { width, height } = canvas;
@@ -152,7 +146,6 @@ function ScratchFoil({
             ctx.fillStyle = silver;
             ctx.fillRect(0, 0, width, height);
 
-            // Brushed-metal speckles
             const random = mulberry32(1337);
             ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
             for (let i = 0; i < Math.round((width * height) / 600); i++) {
@@ -163,7 +156,6 @@ function ScratchFoil({
                 ctx.fillRect(random() * width, random() * height, 1, 2);
             }
 
-            // Diagonal sheen
             const sheen = ctx.createLinearGradient(0, height, width, 0);
             sheen.addColorStop(0, "rgba(255, 255, 255, 0)");
             sheen.addColorStop(0.45, "rgba(255, 255, 255, 0.35)");
@@ -175,7 +167,6 @@ function ScratchFoil({
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
 
-            // Printed stars all over the foil, on a slant
             ctx.save();
             ctx.translate(width / 2, height / 2);
             ctx.rotate(-0.35);
@@ -192,7 +183,6 @@ function ScratchFoil({
             }
             ctx.restore();
 
-            // Central label on a dark printed pill
             const text = label.toUpperCase();
             ctx.font = `800 ${Math.round(15 * scale)}px ui-monospace, monospace`;
             const pillWidth = ctx.measureText(text).width + 30 * scale;
@@ -222,6 +212,11 @@ function ScratchFoil({
         canvas.width = Math.max(1, Math.round(rect.width * ratio));
         canvas.height = Math.max(1, Math.round(rect.height * ratio));
         paintFoil(canvas);
+
+        return () => {
+            canvas.width = 0;
+            canvas.height = 0;
+        };
     }, [paintFoil]);
 
     const finish = useCallback(() => {
@@ -231,21 +226,18 @@ function ScratchFoil({
         onCleared();
     }, [onCleared]);
 
-    /** Ratio of fully erased pixels, sampled on a coarse grid */
     const measure = useCallback((canvas: HTMLCanvasElement) => {
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (!ctx) return 0;
-
-        const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const u32 = new Uint32Array(image.data.buffer);
         let total = 0;
-        let clearedPixels = 0;
-        for (let y = 0; y < canvas.height; y += SAMPLE_STEP) {
-            for (let x = 0; x < canvas.width; x += SAMPLE_STEP) {
-                total++;
-                if (data[(y * canvas.width + x) * 4 + 3]! < 24) clearedPixels++;
-            }
+        let cleared = 0;
+        for (let i = 0; i < u32.length; i += SAMPLE_STRIDE) {
+            total += 1;
+            if ((u32[i]! >>> 24) < 24) cleared += 1;
         }
-        return total === 0 ? 0 : clearedPixels / total;
+        return total === 0 ? 0 : cleared / total;
     }, []);
 
     const scratch = useCallback(
@@ -288,19 +280,15 @@ function ScratchFoil({
                 setFlakes((current) => [...current.slice(-30), flake]);
             }
 
-            // Reading back pixels is the expensive part: only every few strokes
-            if (
-                strokes.current % 6 === 0 &&
-                measure(canvas) >= SCRATCH_THRESHOLD
-            ) {
-                finish();
+            const now = performance.now();
+            if (now - lastMeasure.current >= MEASURE_THROTTLE_MS) {
+                lastMeasure.current = now;
+                if (measure(canvas) >= SCRATCH_THRESHOLD) finish();
             }
         },
         [finish, measure]
     );
 
-    // The coin doing the scratching follows the pointer, straight through the
-    // DOM: this runs on every pointer move
     const moveCoin = (
         event: React.PointerEvent<HTMLCanvasElement>,
         visible: boolean
@@ -308,7 +296,7 @@ function ScratchFoil({
         const coin = coinRef.current;
         if (!coin) return;
         const rect = event.currentTarget.getBoundingClientRect();
-        // Above the finger on touch screens, or it would hide the coin
+
         const lift = event.pointerType === "touch" ? 34 : 0;
         coin.style.transform = `translate(${event.clientX - rect.left}px, ${event.clientY - rect.top - lift}px) rotate(-24deg)`;
         coin.style.opacity = visible ? "1" : "0";
@@ -387,22 +375,19 @@ function ScratchFoil({
     );
 }
 
-/** Where the grade sits on the /20 scale, clamped to 0…1 */
 const gradeRatio = (value: number | null): number =>
     value === null ? 0 : Math.min(1, Math.max(0, value / GRADE_SCALE));
 
-/** How many coins the grade is worth: a 4/20 drips, a 20/20 pours. */
 const coinCountForGrade = (value: number | null): number =>
     Math.round(gradeRatio(value) ** 2 * 42);
 
-/** Payout animation: coins raining over the ticket once it is scratched. */
 function CoinRain({
     count,
     intensity,
     seed,
 }: {
     count: number;
-    /** 0…1: a great grade keeps pouring long after a mediocre one stopped */
+
     intensity: number;
     seed: number;
 }) {
@@ -411,10 +396,9 @@ function CoinRain({
         const spin = () => (random() > 0.5 ? 1 : -1) * (360 + random() * 720);
         return Array.from({ length: count }, () => {
             const size = 14 + random() * 14;
-            // No delay: they all leave the moment the ticket opens, the spread
-            // comes from how high above the screen they start
+
             const startY = -10 - random() * 45 * (1 + intensity * 2.5);
-            // Constant fall speed, so a longer drop simply lasts longer
+
             const speed = 55 + random() * 35;
             return {
                 left: random() * 100,
@@ -456,8 +440,8 @@ function CoinRain({
                     }}
                     transition={{ duration: coin.duration, ease: "easeIn" }}
                 >
-                    {/* Stacked discs: the coin keeps a body when seen edge-on */}
-                    {[-0.5, -0.25, 0, 0.25, 0.5].map((offset) => (
+
+                    {COIN_DISCS.map((offset) => (
                         <span
                             key={offset}
                             className="absolute inset-0 rounded-full"
@@ -480,7 +464,6 @@ function CoinRain({
     );
 }
 
-/** Full-screen scratch ticket for an unopened grade. */
 export function ScratchCard({
     grade,
     onClose,
@@ -502,7 +485,6 @@ export function ScratchCard({
         seed,
     } = useGradeReveal(grade);
 
-    // Nothing to scratch for (unparseable grade or reduced motion): hand it over
     const [revealed, setRevealed] = useState(
         () => value === null || Boolean(reducedMotion)
     );
@@ -533,7 +515,7 @@ export function ScratchCard({
             transition={{ duration: 0.45, ease: "easeInOut" }}
             onClick={revealed ? onClose : undefined}
         >
-            {/* Tobacconist-counter backdrop: felt green, slow light rays, vignette */}
+
             <div
                 className="pointer-events-none absolute inset-0"
                 style={{
@@ -589,10 +571,9 @@ export function ScratchCard({
                     rotate: { duration: 0.45, ease: "easeOut" },
                 }}
             >
-                {/* Cast shadow on the counter */}
+
                 <div className="pointer-events-none absolute inset-x-6 bottom-0 top-10 translate-y-5 rounded-3xl bg-black/70 blur-2xl" />
 
-                {/* Printed body: emerald sunburst, gold logo, price flash */}
                 <div
                     className="relative overflow-hidden rounded-t-2xl px-4 pb-5 pl-6 pt-3"
                     style={{
@@ -602,7 +583,7 @@ export function ScratchCard({
                         WebkitMask: perforationMask("bottom"),
                     }}
                 >
-                    {/* Holographic security strip */}
+
                     <span className="fdj-holo pointer-events-none absolute inset-y-0 left-0 w-2.5" />
 
                     <div className="flex items-center justify-between gap-2">
@@ -664,7 +645,6 @@ export function ScratchCard({
                         </motion.div>
                     </div>
 
-                    {/* Scratch zone in an embossed gold frame */}
                     <div
                         className="relative mt-4 rounded-xl p-[3px]"
                         style={{
@@ -697,11 +677,8 @@ export function ScratchCard({
                                 </div>
                                 {delta !== null && (
                                     <div
-                                        className="flex items-center gap-2 rounded-sm px-3 py-1.5"
-                                        style={{
-                                            backgroundColor: `${trendColor}1f`,
-                                            boxShadow: `inset 0 0 0 1px ${trendColor}66`,
-                                        }}
+                                        className={TREND_BADGE_CLASS}
+                                        style={trendBadgeStyle(trendColor)}
                                     >
                                         {above ? (
                                             <ArrowUp
@@ -715,20 +692,16 @@ export function ScratchCard({
                                             />
                                         )}
                                         <span
-                                            className="font-mono text-[11px] font-bold uppercase tracking-wider"
+                                            className={TREND_LABEL_CLASS}
                                             style={{ color: trendColor }}
                                         >
-                                            {t(
-                                                above
-                                                    ? "gradesPage.caseOpening.aboveAverage"
-                                                    : "gradesPage.caseOpening.belowAverage"
-                                            )}
+                                            {t(trendLabelKey(above))}
                                         </span>
                                         <span
-                                            className="font-mono text-[11px] font-bold"
+                                            className={TREND_VALUE_CLASS}
                                             style={{ color: trendColor }}
                                         >
-                                            {`${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(2)}`}
+                                            {formatDelta(delta)}
                                         </span>
                                     </div>
                                 )}
@@ -772,7 +745,6 @@ export function ScratchCard({
                         </div>
                     </div>
 
-                    {/* Gleam across the printed body once it pays out */}
                     {revealed && !reducedMotion && (
                         <motion.span
                             className="pointer-events-none absolute inset-y-0 left-0 w-1/2 -skew-x-12"
@@ -795,7 +767,6 @@ export function ScratchCard({
                     )}
                 </div>
 
-                {/* Tear-off stub: barcode, serial and the small print */}
                 <div
                     className="relative rounded-b-2xl px-5 pb-4 pt-3"
                     style={{

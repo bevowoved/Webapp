@@ -1,9 +1,5 @@
 import { cn } from "@/lib/utils/cn";
 
-/**
- * Radial progress ring rendered as an SVG circle with a stroke-dashoffset
- * animation.  `value` is clamped to [0, 100].
- */
 export function ProgressRing({
     value,
     size = 28,

@@ -1,7 +1,183 @@
 @import "tailwindcss";
 @import "./safe-area.css";
 
-@plugin 'tailwindcss-animate';
+@keyframes enter {
+    from {
+        opacity: var(--tw-enter-opacity, 1);
+        transform: translate3d(
+                var(--tw-enter-translate-x, 0),
+                var(--tw-enter-translate-y, 0),
+                0
+            )
+            scale3d(
+                var(--tw-enter-scale, 1),
+                var(--tw-enter-scale, 1),
+                var(--tw-enter-scale, 1)
+            )
+            rotate(var(--tw-enter-rotate, 0));
+    }
+}
+
+@keyframes exit {
+    to {
+        opacity: var(--tw-exit-opacity, 1);
+        transform: translate3d(
+                var(--tw-exit-translate-x, 0),
+                var(--tw-exit-translate-y, 0),
+                0
+            )
+            scale3d(
+                var(--tw-exit-scale, 1),
+                var(--tw-exit-scale, 1),
+                var(--tw-exit-scale, 1)
+            )
+            rotate(var(--tw-exit-rotate, 0));
+    }
+}
+
+@property --tw-enter-opacity {
+    syntax: "*";
+    inherits: false;
+    initial-value: 1;
+}
+
+@property --tw-enter-scale {
+    syntax: "*";
+    inherits: false;
+    initial-value: 1;
+}
+
+@property --tw-enter-rotate {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --tw-enter-translate-x {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --tw-enter-translate-y {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --tw-exit-opacity {
+    syntax: "*";
+    inherits: false;
+    initial-value: 1;
+}
+
+@property --tw-exit-scale {
+    syntax: "*";
+    inherits: false;
+    initial-value: 1;
+}
+
+@property --tw-exit-rotate {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --tw-exit-translate-x {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --tw-exit-translate-y {
+    syntax: "*";
+    inherits: false;
+    initial-value: 0;
+}
+
+@utility animate-in {
+    --tw-enter-opacity: initial;
+    --tw-enter-scale: initial;
+    --tw-enter-rotate: initial;
+    --tw-enter-translate-x: initial;
+    --tw-enter-translate-y: initial;
+    animation-name: enter;
+    animation-duration: 150ms;
+}
+
+@utility animate-out {
+    --tw-exit-opacity: initial;
+    --tw-exit-scale: initial;
+    --tw-exit-rotate: initial;
+    --tw-exit-translate-x: initial;
+    --tw-exit-translate-y: initial;
+    animation-name: exit;
+    animation-duration: 150ms;
+}
+
+@utility fade-in-0 {
+    --tw-enter-opacity: 0;
+}
+
+@utility fade-out-0 {
+    --tw-exit-opacity: 0;
+}
+
+@utility zoom-in-95 {
+    --tw-enter-scale: 0.95;
+}
+
+@utility zoom-out-95 {
+    --tw-exit-scale: 0.95;
+}
+
+@utility slide-in-from-top {
+    --tw-enter-translate-y: -100%;
+}
+
+@utility slide-in-from-bottom {
+    --tw-enter-translate-y: 100%;
+}
+
+@utility slide-in-from-left {
+    --tw-enter-translate-x: -100%;
+}
+
+@utility slide-in-from-right {
+    --tw-enter-translate-x: 100%;
+}
+
+@utility slide-in-from-top-2 {
+    --tw-enter-translate-y: -0.5rem;
+}
+
+@utility slide-in-from-bottom-2 {
+    --tw-enter-translate-y: 0.5rem;
+}
+
+@utility slide-in-from-left-2 {
+    --tw-enter-translate-x: -0.5rem;
+}
+
+@utility slide-in-from-right-2 {
+    --tw-enter-translate-x: 0.5rem;
+}
+
+@utility slide-out-to-top {
+    --tw-exit-translate-y: -100%;
+}
+
+@utility slide-out-to-bottom {
+    --tw-exit-translate-y: 100%;
+}
+
+@utility slide-out-to-left {
+    --tw-exit-translate-x: -100%;
+}
+
+@utility slide-out-to-right {
+    --tw-exit-translate-x: 100%;
+}
 
 @custom-variant dark (&:is(.dark *, .oled *));
 @custom-variant oled (&:is(.oled *));
@@ -43,6 +219,9 @@
         --mauria-scale: 1;
 
         --background: 40 33% 98%;
+        --chart-student-above: 142 71% 29%;
+        --chart-student-below: 24 88% 52%;
+        --chart-class: 210 16% 65%;
         --foreground: 0 0% 0%;
 
         --card: 0 0% 100%;
@@ -172,6 +351,9 @@
 
     .dark {
         --background: 262 38% 19%;
+        --chart-student-above: 142 69% 52%;
+        --chart-student-below: 24 88% 58%;
+        --chart-class: 210 16% 55%;
         --foreground: 210 40% 98%;
 
         --card: 262 32% 25%;
@@ -192,7 +374,6 @@
         --accent: 24 88% 58%;
         --accent-foreground: 210 40% 98%;
 
-        /* Bright enough to read as red on the dark purple background */
         --destructive: 0 74% 60%;
         --destructive-foreground: 210 40% 98%;
 
@@ -761,6 +942,9 @@
         color-scheme: dark;
 
         --background: 0 0% 0%;
+        --chart-student-above: 142 65% 68%;
+        --chart-student-below: 24 88% 58%;
+        --chart-class: 210 8% 44%;
         --foreground: 210 8% 88%;
 
         --card: 0 0% 6%;
@@ -781,7 +965,6 @@
         --accent: 0 0% 20%;
         --accent-foreground: 0 0% 92%;
 
-        /* Bright enough to read as red on the pure-black background */
         --destructive: 0 74% 60%;
         --destructive-foreground: 0 0% 96%;
 
@@ -932,11 +1115,6 @@
     }
 }
 
-/*
-  react-simple-pull-to-refresh: prevent content from appearing under an invisible layer
-  when the children are translated during pull. Allow the wrapper to overflow visibly
-  so the translated content isn’t clipped by the container.
-*/
 .ptr {
     overflow: visible !important;
 }
@@ -1035,7 +1213,6 @@
     }
 }
 
-/* Animated "shimmer" on the brand word: a lighter band waves across it. */
 @keyframes mauria-shimmer {
     0% {
         background-position: 100% 0;
@@ -1082,14 +1259,6 @@
     }
 }
 
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
 @layer base {
     *,
     ::after,
@@ -1100,7 +1269,6 @@
     }
 }
 
-/* CS2 case-opening card for unopened grades (CS2 Grades Gambling) */
 @keyframes cs2-sweep {
     0% {
         transform: translateX(-120%) skewX(-20deg);
@@ -1111,7 +1279,6 @@
     }
 }
 
-/* Idle: a short rotation wobble now and then */
 @keyframes cs2-wobble {
     0%,
     20%,
@@ -1130,7 +1297,6 @@
     }
 }
 
-/* Scratch ticket: security foil drifting through the rainbow */
 @keyframes fdj-holo {
     from {
         background-position: 0 0;
@@ -1146,8 +1312,6 @@
     }
 }
 
-/* The glint starts and ends fully off the card, then rests out of sight,
-   so the loop never shows a jump */
 @keyframes ow-shine {
     0% {
         background-position: 130% 0;
@@ -1158,7 +1322,6 @@
     }
 }
 
-/* Slot machine marquee: every third bulb lit, the pattern chases along */
 @keyframes slot-bulb {
     0%,
     33% {
@@ -1170,7 +1333,6 @@
     }
 }
 
-/* Hover: frequent, small horizontal shake */
 @keyframes cs2-shake {
     0%,
     60%,
@@ -1319,7 +1481,6 @@
         animation: fdj-rays 60s linear infinite;
     }
 
-    /* Overwatch lootbox: menu-blue plate, orange glow, honeycomb */
     .ow-case {
         background-color: #0f1626;
         background-image:
@@ -1347,7 +1508,6 @@
         animation: cs2-sweep 3.6s ease-in-out infinite;
     }
 
-    /* Legendary drops: a gold glint sweeping across the card back */
     .ow-card-shine {
         background: linear-gradient(
             105deg,
@@ -1392,7 +1552,6 @@
         animation: cs2-shake 0.8s ease-in-out infinite;
     }
 
-    /* Pokemon booster: foil pack, holo sheen and pointer glare */
     .poke-entry-foil {
         background-color: #09090b;
         background-image:
@@ -1472,7 +1631,6 @@
     }
 
     .poke-holo-host {
-        /* Own blending group, so WebKit blends the shine with the card only */
         isolation: isolate;
         --sunpillar-1: hsl(2, 100%, 73%);
         --sunpillar-2: hsl(53, 100%, 69%);
@@ -1484,10 +1642,6 @@
         --holo-angle: 133deg;
     }
 
-    /* Shine layer, ported from simeydotme/pokemon-cards-css (v-full-art):
-       vertical sunpillars + diagonal foil strips + radial darkening, all
-       blended in one element so the rainbow never washes the whole card.
-       Driven by --background-x/y and --pointer-x/y. */
     .poke-shine {
         --c1: var(--sunpillar-5);
         --c2: var(--sunpillar-6);
@@ -1536,8 +1690,6 @@
         opacity: var(--card-opacity);
     }
 
-    /* Second shine layer: same three layers with rotated sunpillars and the
-       foil strips moving the opposite way, exclusion-blended on top. */
     .poke-shine::after {
         --c1: var(--sunpillar-6);
         --c2: var(--sunpillar-1);
@@ -1591,7 +1743,6 @@
             contrast(1.5) saturate(1.25);
     }
 
-    /* Radial highlight that follows the cursor */
     .poke-shine::before {
         content: "";
         position: absolute;

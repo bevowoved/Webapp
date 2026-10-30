@@ -13,51 +13,71 @@ import {
     useAnimationControls,
     useReducedMotion,
 } from "framer-motion";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Box, ChevronsRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Grade } from "@/types/aurion";
-import { GRADE_SCALE } from "@/lib/utils/grade-rarity";
-import { useGradeReveal } from "../use-grade-reveal";
-import {
-    HEX_PATTERN,
-    ITEMS_PER_BOX,
-    LOOT_RARITIES,
-    OW_ORANGE,
-    getLootRarity,
-    type LootRarity,
-} from "./lootbox-data";
+import { GRADE_SCALE, parseGradeValue } from "@/lib/utils/grades";
+import { triggerHapticPattern } from "@/lib/utils/sfx";
+import { Card } from "@/components/ui/card";
+import { fadeInIndexed } from "@/lib/motion";
+import { CORNERS, formatDelta, hashSeed, mulberry32, pickTier, useGradeReveal } from "../use-grade-reveal";
+
+const ITEMS_PER_BOX = 3;
+
+const OW_ORANGE = "#f99e1a";
+
+type LootboxRarity = {
+    id: "common" | "rare" | "epic" | "legendary";
+    labelKey: string;
+    min: number;
+    color: string;
+    glow: string;
+};
+
+const LOOT_RARITIES: LootboxRarity[] = [
+    { id: "common", labelKey: "gradesPage.lootbox.rarity.common", min: 0, color: "#e5e7eb", glow: "rgba(229, 231, 235, 0.55)" },
+    { id: "rare", labelKey: "gradesPage.lootbox.rarity.rare", min: 10, color: "#3fa5ff", glow: "rgba(63, 165, 255, 0.65)" },
+    { id: "epic", labelKey: "gradesPage.lootbox.rarity.epic", min: 13, color: "#c86bfa", glow: "rgba(200, 107, 250, 0.7)" },
+    { id: "legendary", labelKey: "gradesPage.lootbox.rarity.legendary", min: 16, color: "#ffb33a", glow: "rgba(255, 179, 58, 0.8)" },
+];
+
+const getLootRarity = (raw: string): LootboxRarity =>
+    pickTier(LOOT_RARITIES, parseGradeValue(raw) ?? 0);
+
+const HEX_PATTERN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='42'%3E%3Cpath d='M12 0L24 7V21L12 28L0 21V7Z M12 28V42' fill='none' stroke='white' stroke-opacity='0.07'/%3E%3C/svg%3E")`;
+
+const MotionCard = motion.create(Card);
+
+const OW_CORNER = "border-orange-300/70";
+const OW_CORNER_EMPTY = "border-zinc-600/70";
+const OW_ICON = "text-orange-400 drop-shadow-[0_0_8px_rgba(249,158,26,0.9)]";
 
 const BOX_WIDTH = 150;
 const BOX_HEIGHT = 92;
 const BOX_DEPTH = 110;
 const LID_HEIGHT = 24;
-/** Box charging up, then the lid blows open, then the drops fly out */
+
 const CHARGE_TIME = 1000;
 const DROP_TIME = 1450;
 
 type Phase = "idle" | "opening" | "items";
 
-type LootItem = { grade: Grade; rarity: LootRarity };
+type LootItem = { grade: Grade; rarity: LootboxRarity };
 
-const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(pattern);
-    }
-};
+const vibrate = (pattern: number | number[]) => triggerHapticPattern(pattern);
 
-const shuffle = <T,>(items: T[]): T[] => {
+const shuffle = <T,>(items: T[], random: () => number): T[] => {
     const copy = [...items];
     for (let index = copy.length - 1; index > 0; index--) {
-        const swap = Math.floor(Math.random() * (index + 1));
+        const swap = Math.floor(random() * (index + 1));
         [copy[index], copy[swap]] = [copy[swap]!, copy[index]!];
     }
     return copy;
 };
 
-const rarityRank = (rarity: LootRarity) => LOOT_RARITIES.indexOf(rarity);
+const rarityRank = (rarity: LootboxRarity) => LOOT_RARITIES.indexOf(rarity);
 
-/** Gunmetal plating shared by every face of the box */
 const PLATE: CSSProperties = {
     position: "absolute",
     background:
@@ -67,7 +87,18 @@ const PLATE: CSSProperties = {
     backfaceVisibility: "hidden",
 };
 
-/** Split ring on the front of the box: a nod to the Overwatch emblem */
+const face = (width: number, height: number, transform: string): CSSProperties => ({
+    ...PLATE,
+    width,
+    height,
+    transform,
+});
+
+const SEAM_BAR: CSSProperties = {
+    background: OW_ORANGE,
+    boxShadow: `0 0 10px ${OW_ORANGE}`,
+};
+
 function Emblem({ size, color }: { size: number; color: string }) {
     return (
         <span
@@ -86,90 +117,44 @@ function Emblem({ size, color }: { size: number; color: string }) {
     );
 }
 
-/**
- * A real CSS 3D crate: five plated faces, a glowing interior and a hinged
- * lid. `color` lights the seams, `open` swings the lid back.
- */
 function LootBox3D({ color, open }: { color: string; open: boolean }) {
     const half = BOX_DEPTH / 2;
     const seam = `inset 0 3px 0 ${color}, inset 0 8px 14px -6px ${color}`;
 
     return (
-        <div
-            className="relative"
-            style={{
-                width: BOX_WIDTH,
-                height: BOX_HEIGHT,
-                transformStyle: "preserve-3d",
-            }}
-        >
-            {/* Front: orange band, white trim, emblem */}
-            <div
-                style={{
-                    ...PLATE,
-                    width: BOX_WIDTH,
-                    height: BOX_HEIGHT,
-                    transform: `translateZ(${half}px)`,
-                }}
-            >
-                <span
-                    className="absolute inset-0"
-                    style={{ boxShadow: seam }}
-                />
-                <span
-                    className="absolute inset-x-0 bottom-3 h-2.5"
-                    style={{
-                        background: OW_ORANGE,
-                        boxShadow: `0 0 10px ${OW_ORANGE}`,
-                    }}
-                />
+        <div className="relative" style={{ width: BOX_WIDTH, height: BOX_HEIGHT, transformStyle: "preserve-3d" }}>
+
+            <div style={face(BOX_WIDTH, BOX_HEIGHT, `translateZ(${half}px)`)}>
+                <span className="absolute inset-0" style={{ boxShadow: seam }} />
+                <span className="absolute inset-x-0 bottom-3 h-2.5" style={SEAM_BAR} />
                 <span className="absolute inset-x-3 top-3 h-px bg-white/25" />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[60%]">
                     <Emblem size={40} color={color} />
                 </span>
             </div>
-            {/* Back */}
-            <div
-                style={{
-                    ...PLATE,
-                    width: BOX_WIDTH,
-                    height: BOX_HEIGHT,
-                    transform: `rotateY(180deg) translateZ(${half}px)`,
-                }}
-            />
-            {/* Sides */}
+
+            <div style={face(BOX_WIDTH, BOX_HEIGHT, `rotateY(180deg) translateZ(${half}px)`)} />
+
             {[90, -90].map((angle) => (
                 <div
                     key={angle}
                     style={{
-                        ...PLATE,
-                        width: BOX_DEPTH,
-                        height: BOX_HEIGHT,
+                        ...face(BOX_DEPTH, BOX_HEIGHT, `rotateY(${angle}deg) translateZ(${BOX_WIDTH / 2}px)`),
                         left: (BOX_WIDTH - BOX_DEPTH) / 2,
-                        transform: `rotateY(${angle}deg) translateZ(${BOX_WIDTH / 2}px)`,
                     }}
                 >
-                    <span
-                        className="absolute inset-0"
-                        style={{ boxShadow: seam }}
-                    />
-                    <span
-                        className="absolute inset-x-0 bottom-3 h-2.5"
-                        style={{ background: OW_ORANGE }}
-                    />
+                    <span className="absolute inset-0" style={{ boxShadow: seam }} />
+                    <span className="absolute inset-x-0 bottom-3 h-2.5" style={{ background: OW_ORANGE }} />
                 </div>
             ))}
-            {/* Bottom */}
+
             <div
                 style={{
-                    ...PLATE,
-                    width: BOX_WIDTH,
-                    height: BOX_DEPTH,
+                    ...face(BOX_WIDTH, BOX_DEPTH, `rotateX(-90deg) translateZ(${BOX_HEIGHT / 2}px)`),
                     top: (BOX_HEIGHT - BOX_DEPTH) / 2,
-                    transform: `rotateX(-90deg) translateZ(${BOX_HEIGHT / 2}px)`,
                 }}
             />
-            {/* Glowing interior, seen once the lid is up */}
+
             <div
                 className="absolute"
                 style={{
@@ -182,7 +167,6 @@ function LootBox3D({ color, open }: { color: string; open: boolean }) {
                 }}
             />
 
-            {/* Lid, hinged on its back bottom edge */}
             <motion.div
                 className="absolute left-0"
                 style={{
@@ -202,16 +186,12 @@ function LootBox3D({ color, open }: { color: string; open: boolean }) {
                         : { duration: 0 }
                 }
             >
-                {/* Top */}
+
                 <div
                     style={{
-                        ...PLATE,
-                        width: BOX_WIDTH,
-                        height: BOX_DEPTH,
+                        ...face(BOX_WIDTH, BOX_DEPTH, `rotateX(90deg) translateZ(${LID_HEIGHT / 2}px)`),
                         top: (LID_HEIGHT - BOX_DEPTH) / 2,
-                        transform: `rotateX(90deg) translateZ(${LID_HEIGHT / 2}px)`,
-                        background:
-                            "linear-gradient(135deg, #5a6479, #2f3542 60%, #22262f)",
+                        background: "linear-gradient(135deg, #5a6479, #2f3542 60%, #22262f)",
                     }}
                 >
                     <span className="absolute inset-4 rounded-sm border-2 border-white/20" />
@@ -219,47 +199,30 @@ function LootBox3D({ color, open }: { color: string; open: boolean }) {
                         <Emblem size={34} color={color} />
                     </span>
                 </div>
-                {/* Underside, lit by the loot */}
+
                 <div
                     style={{
-                        ...PLATE,
-                        width: BOX_WIDTH,
-                        height: BOX_DEPTH,
+                        ...face(BOX_WIDTH, BOX_DEPTH, `rotateX(-90deg) translateZ(${LID_HEIGHT / 2}px)`),
                         top: (LID_HEIGHT - BOX_DEPTH) / 2,
-                        transform: `rotateX(-90deg) translateZ(${LID_HEIGHT / 2}px)`,
                         background: `radial-gradient(circle, ${color}, #1c2029 75%)`,
                     }}
                 />
-                {/* Rim */}
+
                 <div
                     style={{
-                        ...PLATE,
-                        width: BOX_WIDTH,
-                        height: LID_HEIGHT,
-                        transform: `translateZ(${half}px)`,
+                        ...face(BOX_WIDTH, LID_HEIGHT, `translateZ(${half}px)`),
                         background: "linear-gradient(180deg, #e5e7eb, #9ca3af)",
                         boxShadow: `inset 0 -3px 0 ${color}`,
                     }}
                 />
-                <div
-                    style={{
-                        ...PLATE,
-                        width: BOX_WIDTH,
-                        height: LID_HEIGHT,
-                        transform: `rotateY(180deg) translateZ(${half}px)`,
-                    }}
-                />
+                <div style={face(BOX_WIDTH, LID_HEIGHT, `rotateY(180deg) translateZ(${half}px)`)} />
                 {[90, -90].map((angle) => (
                     <div
                         key={angle}
                         style={{
-                            ...PLATE,
-                            width: BOX_DEPTH,
-                            height: LID_HEIGHT,
+                            ...face(BOX_DEPTH, LID_HEIGHT, `rotateY(${angle}deg) translateZ(${BOX_WIDTH / 2}px)`),
                             left: (BOX_WIDTH - BOX_DEPTH) / 2,
-                            transform: `rotateY(${angle}deg) translateZ(${BOX_WIDTH / 2}px)`,
-                            background:
-                                "linear-gradient(180deg, #d1d5db, #8b929e)",
+                            background: "linear-gradient(180deg, #d1d5db, #8b929e)",
                             boxShadow: `inset 0 -3px 0 ${color}`,
                         }}
                     />
@@ -269,19 +232,17 @@ function LootBox3D({ color, open }: { color: string; open: boolean }) {
     );
 }
 
-/** Motes of light drifting up around the box */
 function RisingMotes({ color, intense }: { color: string; intense: boolean }) {
-    const motes = useMemo(
-        () =>
-            Array.from({ length: 16 }, () => ({
-                left: 10 + Math.random() * 80,
-                size: 2 + Math.random() * 3,
-                duration: 1.8 + Math.random() * 1.8,
-                delay: Math.random() * 2.5,
-                drift: (Math.random() - 0.5) * 30,
-            })),
-        []
-    );
+    const motes = useMemo(() => {
+        const random = mulberry32(hashSeed("lootbox-motes"));
+        return Array.from({ length: 16 }, () => ({
+            left: 10 + random() * 80,
+            size: 2 + random() * 3,
+            duration: 1.8 + random() * 1.8,
+            delay: random() * 2.5,
+            drift: (random() - 0.5) * 30,
+        }));
+    }, []);
 
     return (
         <div className="pointer-events-none absolute inset-x-0 bottom-6 top-0">
@@ -313,23 +274,21 @@ function RisingMotes({ color, intense }: { color: string; intense: boolean }) {
     );
 }
 
-/** Streaks thrown off a card as it flips, more for the rarer tiers */
-function RevealSparks({ rarity }: { rarity: LootRarity }) {
+function RevealSparks({ rarity }: { rarity: LootboxRarity }) {
     const tier = rarityRank(rarity);
-    const sparks = useMemo(
-        () =>
-            Array.from({ length: 6 + tier * 6 }, () => {
-                const angle = Math.random() * Math.PI * 2;
-                const distance = 60 + Math.random() * (40 + tier * 30);
-                return {
-                    x: Math.cos(angle) * distance,
-                    y: Math.sin(angle) * distance,
-                    size: 3 + Math.random() * 3,
-                    duration: 0.6 + Math.random() * 0.4,
-                };
-            }),
-        [tier]
-    );
+    const sparks = useMemo(() => {
+        const random = mulberry32(hashSeed(rarity.id, tier, "loot-sparks"));
+        return Array.from({ length: 6 + tier * 6 }, () => {
+            const angle = random() * Math.PI * 2;
+            const distance = 60 + random() * (40 + tier * 30);
+            return {
+                x: Math.cos(angle) * distance,
+                y: Math.sin(angle) * distance,
+                size: 3 + random() * 3,
+                duration: 0.6 + random() * 0.4,
+            };
+        });
+    }, [tier, rarity.id]);
 
     return (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-20">
@@ -380,7 +339,7 @@ function LootCard({
     return (
         <motion.div
             className="relative w-[28vw] max-w-[132px]"
-            // Shot out of the box below, in a spray
+
             initial={
                 instant
                     ? false
@@ -400,7 +359,7 @@ function LootCard({
                 delay: index * 0.14,
             }}
         >
-            {/* Light shaft behind the drop, as tall as the rarity is high */}
+
             <motion.span
                 className="pointer-events-none absolute bottom-1/2 left-1/2 w-3/4 -translate-x-1/2 blur-md"
                 style={{
@@ -436,7 +395,7 @@ function LootCard({
                             : { duration: 0.6, ease: [0.3, 1.4, 0.5, 1] }
                     }
                 >
-                    {/* Back: honeycomb, rarity glow, emblem */}
+
                     <motion.div
                         className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-lg"
                         style={{
@@ -471,7 +430,6 @@ function LootCard({
                         )}
                     </motion.div>
 
-                    {/* Face: the grade itself */}
                     <div
                         className="absolute inset-0 flex flex-col items-center overflow-hidden rounded-lg px-2 pb-2.5 pt-2 text-center"
                         style={{
@@ -512,7 +470,7 @@ function LootCard({
                                 ) : (
                                     <ArrowDown className="size-3" />
                                 )}
-                                {`${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(2)}`}
+                                {formatDelta(delta)}
                             </span>
                         )}
                         <p className="mt-auto line-clamp-2 text-[10px] font-semibold leading-tight text-white">
@@ -532,7 +490,6 @@ function LootCard({
     );
 }
 
-/** Skewed call-to-action, in the Overwatch menu style */
 function OwButton({
     children,
     onClick,
@@ -575,15 +532,14 @@ function Lootbox({
     const { t } = useTranslation();
     const instant = useReducedMotion() === true;
 
-    // Drawn once per box: reopening the overlay rolls a new one
     const [items] = useState<LootItem[]>(() =>
-        shuffle(unopened)
+        shuffle(unopened, mulberry32(hashSeed("lootbox", unopened.length, unopened[0]?.date ?? "")))
             .slice(0, ITEMS_PER_BOX)
             .map((grade) => ({ grade, rarity: getLootRarity(grade.grade) }))
     );
     const best = useMemo(
         () =>
-            items.reduce<LootRarity>(
+            items.reduce<LootboxRarity>(
                 (top, item) =>
                     rarityRank(item.rarity) > rarityRank(top)
                         ? item.rarity
@@ -606,10 +562,8 @@ function Lootbox({
         (unopened.length - items.length) / ITEMS_PER_BOX
     );
 
-    // Only reachable once every drop is flipped
     const close = () => onClose(items.map((item) => item.grade));
 
-    // Nothing to hand out (opened from a stale list): get out of the way
     useEffect(() => {
         if (items.length === 0) onClose([]);
     }, [items.length, onClose]);
@@ -676,7 +630,7 @@ function Lootbox({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.45, ease: "easeInOut" }}
         >
-            {/* Menu backdrop: honeycomb over a cold blue haze */}
+
             <div
                 className="pointer-events-none absolute inset-0"
                 style={{
@@ -731,7 +685,7 @@ function Lootbox({
                 className="relative flex w-full max-w-md flex-1 flex-col items-center justify-center"
                 animate={stageControls}
             >
-                {/* The drops: one card per grade, fanned out above the box */}
+
                 <div className="relative z-10 flex min-h-[42vw] items-end justify-center gap-3 sm:min-h-[198px]">
                     {phase === "items" &&
                         items.map((item, index) => (
@@ -746,7 +700,6 @@ function Lootbox({
                         ))}
                 </div>
 
-                {/* Stage: pedestal, motes and the box itself */}
                 <div className="relative mt-10 flex h-56 w-full items-end justify-center">
                     <RisingMotes color={boxColor} intense={phase !== "idle"} />
 
@@ -759,7 +712,6 @@ function Lootbox({
                         }}
                     />
 
-                    {/* Light column erupting from the open box */}
                     <AnimatePresence>
                         {lidOpen && !instant && (
                             <motion.span
@@ -895,3 +847,95 @@ export function LootboxOverlay({
         document.body
     );
 }
+
+export function LootboxEntryCard({
+    count,
+    onOpen,
+}: {
+    count: number;
+    onOpen: () => void;
+}) {
+    const { t } = useTranslation();
+    const empty = count === 0;
+    const boxes = Math.ceil(count / ITEMS_PER_BOX);
+    const corner = empty ? OW_CORNER_EMPTY : OW_CORNER;
+
+    return (
+        <MotionCard
+            layout
+            variants={fadeInIndexed}
+            custom={0}
+            initial="hidden"
+            animate="show"
+            exit="exit"
+            className={`reveal-card relative border-none bg-white p-4 shadow-md dark:bg-mauria-card h-full overflow-visible ${
+                empty
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer transition-transform duration-150 hover:-translate-y-0.5"
+            }`}
+            onClick={empty ? undefined : onOpen}
+        >
+            <div
+                className={`pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit] ${
+                    empty ? "poke-entry-empty" : "ow-case"
+                }`}
+            >
+                {CORNERS.map((c) => (
+                    <span key={c} className={`absolute size-2.5 ${c} ${corner}`} />
+                ))}
+            </div>
+            <div className="relative flex items-center">
+                <div className="mr-4 w-20 items-center justify-center text-center">
+                    <Box
+                        className={
+                            empty
+                                ? "mx-auto size-8 text-zinc-400"
+                                : `reveal-icon mx-auto size-8 ${OW_ICON}`
+                        }
+                    />
+                    {!empty && (
+                        <div className="font-mono text-sm font-bold italic leading-5 tracking-[0.2em] text-orange-200">
+                            {t("gradesPage.lootbox.boxCount", {
+                                count: boxes,
+                            })}
+                        </div>
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 truncate text-lg font-black uppercase italic tracking-wide text-white">
+                        {t(
+                            empty
+                                ? "gradesPage.lootbox.empty"
+                                : "gradesPage.lootbox.openBox"
+                        )}
+                    </div>
+                    <div className="flex h-5 items-center justify-between gap-2 text-sm text-zinc-500">
+                        {empty ? (
+                            <span className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-zinc-400">
+                                {t("gradesPage.lootbox.emptyHint")}
+                            </span>
+                        ) : (
+                            <>
+                                <span className="inline-flex h-5 shrink-0 -skew-x-12 items-center bg-[#f99e1a] px-2.5 shadow-[0_0_12px_rgba(249,158,26,0.45)]">
+                                    <span className="inline-flex skew-x-12 items-center gap-1 whitespace-nowrap text-[10px] font-black uppercase italic leading-none tracking-wide text-zinc-950">
+                                        <ChevronsRight className="size-3 shrink-0 animate-pulse" />
+                                        {t("gradesPage.lootbox.tapToOpen")}
+                                    </span>
+                                </span>
+                                <p className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-sky-200/70">
+                                    <span className="sm:hidden">
+                                        {t("gradesPage.lootbox.remainingShort", { count })}
+                                    </span>
+                                    <span className="hidden sm:inline">
+                                        {t("gradesPage.lootbox.remaining", { count })}
+                                    </span>
+                                </p>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </MotionCard>
+    );
+}
+

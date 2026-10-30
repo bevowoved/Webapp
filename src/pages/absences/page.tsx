@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useMemo, useState } from "react";
-import { CalendarOff, Loader2 } from "lucide-react";
-import { AurionDownState } from "@/components/aurion-down-state";
+import { CalendarOff } from "lucide-react";
+import { EmptyListState } from "@/components/aurion-down-state";
 import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
 
@@ -11,57 +11,51 @@ import { getAbsencesDurations, getAbsences, getAbsenceSemesters, getCurrentSemes
 import { Separator } from "@/components/ui/separator";
 import { AbsenceCard, AbsenceCardAnimate } from "./absences-card";
 import { AnimatePresence, motion } from "framer-motion";
-import { fetchAbsences } from "@/lib/api/aurion";
 import { useQuery } from "@tanstack/react-query";
 import { PullToRefresh } from "@/components/pull-to-refresh";
-import { Absence } from "@/types/aurion";
 import { useTranslation } from "react-i18next";
 import { fadeIn, staggerGroup } from "@/lib/motion";
 import { CarouselItem, FilterCarousel } from "@/components/filter-carousel";
+import { absencesQueryOptions, EMPTY_ABSENCES } from "@/lib/hooks/use-colles";
 
 const AnimatedAbsenceCard = memo(AbsenceCardAnimate);
 const StaticAbsenceCard = memo(AbsenceCard);
 
 type StatusFilter = "justified" | "unjustified";
 
+const AbsenceStat = ({
+    label,
+    value,
+    tone,
+}: {
+    label: string;
+    value: string;
+    tone: string;
+}) => (
+    <div className="flex-1">
+        <div className="text-sm font-medium text-muted-foreground">{label}</div>
+        <div className={`mt-1 text-2xl font-semibold ${tone}`}>{value}</div>
+    </div>
+);
+
 export function AbsencesPage() {
     const { t } = useTranslation();
     const [selectedStatus, setSelectedStatus] = useState<StatusFilter | null>(
         null
     );
-    // undefined = not chosen yet (falls back to the current semester);
-    // null = "All"; string = a specific semester key
     const [semesterChoice, setSemesterChoice] = useState<
         string | null | undefined
     >(undefined);
     const { isWarming } = useAurionWarm();
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
 
     const {
-        data: absences = [],
+        data: absences = EMPTY_ABSENCES,
         refetch,
         isLoading,
-        isFetching,
-    } = useQuery<Absence[], Error>({
-        queryKey: ["absences"],
-        queryFn: async (): Promise<Absence[]> => {
-            const res = await fetchAbsences();
-            // Throw (don't fall back) on failure so React Query keeps the
-            // cached data instead of wiping it — e.g. a failed
-            // refetch-on-focus after the app was backgrounded.
-            if (!res?.success) {
-                throw new Error("Failed to fetch absences");
-            }
-            return res.data ?? [];
-        },
-        enabled: !isWarming,
-        staleTime: 1000 * 60 * 5, // 5 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
-        refetchOnWindowFocus: true, // refresh background si focus fenêtre
-        placeholderData: (previousData) => previousData,
-    });
+    } = useQuery(absencesQueryOptions(!isWarming && !aurionDown));
 
-    const isBusy = isWarming || isLoading || isFetching;
-    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
+    const isBusy = (isWarming && absences.length === 0) || isLoading;
 
     const handleRefresh = () => refetch();
 
@@ -70,7 +64,6 @@ export function AbsencesPage() {
     const semesterKey = useMemo(() => {
         if (semesterChoice !== undefined) return semesterChoice;
         const current = getCurrentSemesterKey();
-        // Default to the current semester, else the most recent one with absences
         if (semesters.some((s) => s.key === current)) return current;
         return semesters[semesters.length - 1]?.key ?? null;
     }, [semesterChoice, semesters]);
@@ -118,8 +111,6 @@ export function AbsencesPage() {
         [t]
     );
 
-    // Remounts the results list on every filter change so the entrance
-    // animation replays consistently (and not just from the 2nd change on).
     const filterKey = `${semesterKey ?? "all"}|${selectedStatus ?? "all"}`;
 
     return (
@@ -162,25 +153,19 @@ export function AbsencesPage() {
 
                         <CardContent className="pt-4">
                             <div className="flex items-start gap-6">
-                                <div className="flex-1">
-                                    <div className="text-sm font-medium text-muted-foreground">
-                                        {t("absencesPage.justified")}
-                                    </div>
-                                    <div className="mt-1 text-2xl font-semibold text-green-700/70 dark:text-green-400/60 oled:text-green-300/65">
-                                        {justified}
-                                    </div>
-                                </div>
+                                <AbsenceStat
+                                    label={t("absencesPage.justified")}
+                                    value={justified}
+                                    tone="text-green-700/70 dark:text-green-400/60 oled:text-green-300/65"
+                                />
 
                                 <div className="h-10 w-px bg-border" />
 
-                                <div className="flex-1">
-                                    <div className="text-sm font-medium text-muted-foreground">
-                                        {t("absencesPage.unjustified")}
-                                    </div>
-                                    <div className="mt-1 text-2xl font-semibold text-amber-700/70 dark:text-amber-400/60 oled:text-amber-400/60">
-                                        {unjustified}
-                                    </div>
-                                </div>
+                                <AbsenceStat
+                                    label={t("absencesPage.unjustified")}
+                                    value={unjustified}
+                                    tone="text-amber-700/70 dark:text-amber-400/60 oled:text-amber-400/60"
+                                />
                             </div>
                         </CardContent>
                     </Card>
@@ -194,41 +179,15 @@ export function AbsencesPage() {
                             animate="show"
                             exit="exit"
                         >
-                            <div className="text-center py-12">
-                                <div className="bg-mauria-card rounded-xl shadow-md p-8 max-w-md mx-auto">
-                                    {aurionDown && absences.length === 0 ? (
-                                        <AurionDownState
-                                            message={t(
-                                                "absencesPage.noAbsencesCached"
-                                            )}
-                                        />
-                                    ) : (
-                                        <>
-                                            <div className="w-16 h-16 bg-muted-foreground/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                {isBusy ? (
-                                                    <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-                                                ) : (
-                                                    <CalendarOff className="w-8 h-8 text-muted-foreground" />
-                                                )}
-                                            </div>
-                                            <h3 className="text-lg font-semibold mb-2">
-                                                {isBusy
-                                                    ? t("common.loading")
-                                                    : t(
-                                                          "absencesPage.noAbsences"
-                                                      )}
-                                            </h3>
-                                            {!isBusy && (
-                                                <p className="text-muted-foreground">
-                                                    {t(
-                                                        "absencesPage.noAbsencesPlaceholder"
-                                                    )}
-                                                </p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
+                            <EmptyListState
+                                busy={isBusy}
+                                aurionDown={aurionDown}
+                                hasCachedItems={absences.length > 0}
+                                cachedMessage={t("absencesPage.noAbsencesCached")}
+                                icon={CalendarOff}
+                                emptyTitle={t("absencesPage.noAbsences")}
+                                emptyBody={t("absencesPage.noAbsencesPlaceholder")}
+                            />
                         </motion.div>
                     ) : (
                         <motion.div

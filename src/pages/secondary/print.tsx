@@ -11,8 +11,7 @@ import {
     staggerGroup,
 } from "@/lib/motion";
 import { PullToRefresh } from "@/components/pull-to-refresh";
-import { format, isValid, parse } from "date-fns";
-import { enUS } from "date-fns/locale";
+import { format, isValid } from "@/lib/utils/date-time";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,8 +28,6 @@ import { getDateLocale } from "@/lib/utils/translations";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const REFETCH_INTERVAL = 15_000;
-// SafeQ lists a new job a few seconds after the upload returns: check at each
-// delay, and give up on the last one
 const VERIFY_DELAYS = [3_000, 6_000, 9_000];
 
 interface PendingFile {
@@ -40,21 +37,47 @@ interface PendingFile {
     duplex: boolean;
 }
 
-// Uploaded file shown in the list before SafeQ actually lists it
 interface OptimisticJob extends PrintJob {
-    // Same-name jobs already listed at upload time: it is really listed once
-    // this count is exceeded
     baseline: number;
 }
 
 const countByName = (jobs: PrintJob[] | undefined, name: string) =>
     jobs?.filter((job) => job.name === name).length ?? 0;
 
-// SafeQ always returns dates in English, e.g. "Sep 18, 2026, 6:34 PM"
+const MONTHS = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+];
+
+const parseSafeQDate = (raw: string): Date => {
+    const m = raw
+        .trim()
+        .match(
+            /^([A-Za-z]{3})\w*\s+(\d{1,2}),\s*(\d{4}),?\s*(\d{1,2}):(\d{2})\s*([AP])M$/i
+        );
+    if (!m) return new Date(NaN);
+    const month = MONTHS.indexOf(m[1]!.toLowerCase());
+    if (month === -1) return new Date(NaN);
+    const day = Number(m[2]);
+    const year = Number(m[3]);
+    let hour = Number(m[4]) % 12;
+    if (m[6]!.toUpperCase() === "P") hour += 12;
+    const minute = Number(m[5]);
+    return new Date(year, month, day, hour, minute, 0, 0);
+};
+
 const formatJobDate = (raw: string, language: string) => {
-    const date = parse(raw, "MMM d, yyyy, h:mm a", new Date(), {
-        locale: enUS,
-    });
+    const date = parseSafeQDate(raw);
     if (!isValid(date)) return raw;
     return format(date, "EEEE d MMM HH'h'mm", {
         locale: getDateLocale(language),
@@ -63,11 +86,16 @@ const formatJobDate = (raw: string, language: string) => {
 
 const formatEuro = (value: number) => `€ ${value.toFixed(3)}`;
 
-const MotionCard = motion(Card);
+const MotionCard = motion.create(Card);
 
-// Same cascade as fadeInIndexed, but the optimistic "pending" jobs settle on
-// the dimmed 0.6 opacity instead of 1 (framer's inline style wins over the
-// old opacity-60 class, so the dimming lives in the variant itself).
+const SectionHeading = ({ title }: { title: string }) => (
+    <h2 className="text-lg font-semibold">{title}</h2>
+);
+
+const Section = ({ children }: { children: React.ReactNode }) => (
+    <motion.div variants={fadeIn}>{children}</motion.div>
+);
+
 const pendingJobCard: Variants = {
     hidden: { opacity: 0 },
     show: (i = 0) => ({
@@ -94,9 +122,7 @@ function BalanceSection() {
 
     return (
         <section className="space-y-3">
-            <h2 className="text-lg font-semibold">
-                {t("printPage.balance.title")}
-            </h2>
+            <SectionHeading title={t("printPage.balance.title")} />
             <Card>
                 <CardContent className="p-4">
                     <p className="text-sm text-muted-foreground">
@@ -154,9 +180,7 @@ function JobsSection({ optimistic }: { optimistic: OptimisticJob[] }) {
 
     return (
         <section className="space-y-3">
-            <h2 className="text-lg font-semibold">
-                {t("printPage.jobs.title")}
-            </h2>
+            <SectionHeading title={t("printPage.jobs.title")} />
             <div className="flex gap-2">
                 {(["WAITING", "PRINTED"] as const).map((f) => (
                     <Button
@@ -214,7 +238,6 @@ function JobsSection({ optimistic }: { optimistic: OptimisticJob[] }) {
                                     </p>
                                 </div>
                                 {job.id.startsWith("pending-") ? (
-                                    // Same footprint as the delete button
                                     <div className="flex h-9 w-9 items-center justify-center">
                                         <Loader2 className="h-4 w-4 animate-spin" />
                                     </div>
@@ -363,15 +386,12 @@ function UploadSection({
                 duplex: false,
             })),
         ]);
-        // Allow re-picking the same file afterwards
         if (inputRef.current) inputRef.current.value = "";
     };
 
     return (
         <section className="space-y-3">
-            <h2 className="text-lg font-semibold">
-                {t("printPage.upload.title")}
-            </h2>
+            <SectionHeading title={t("printPage.upload.title")} />
             <input
                 ref={inputRef}
                 type="file"
@@ -426,9 +446,6 @@ export function PrintPage() {
     const queryClient = useQueryClient();
     const [optimistic, setOptimistic] = useState<OptimisticJob[]>([]);
 
-    // Show the file right away, then check whether SafeQ really lists it. Once
-    // it does, the real job replaces the placeholder and the checks stop. A
-    // missing file is left pending until the last check, which drops it.
     const trackUpload = (name: string) => {
         const key = ["print", "jobs", "WAITING"];
         const id = `pending-${crypto.randomUUID()}`;
@@ -441,7 +458,7 @@ export function PrintPage() {
                 id,
                 name,
                 date: format(new Date(), "MMM d, yyyy, h:mm a", {
-                    locale: enUS,
+                    locale: "en",
                 }),
                 owner: "",
                 baseline,
@@ -482,15 +499,15 @@ export function PrintPage() {
                 initial="hidden"
                 animate="show"
             >
-                <motion.div variants={fadeIn}>
+                <Section>
                     <BalanceSection />
-                </motion.div>
-                <motion.div variants={fadeIn}>
+                </Section>
+                <Section>
                     <UploadSection onUploaded={trackUpload} />
-                </motion.div>
-                <motion.div variants={fadeIn}>
+                </Section>
+                <Section>
                     <JobsSection optimistic={optimistic} />
-                </motion.div>
+                </Section>
             </motion.div>
         </PullToRefresh>
     );

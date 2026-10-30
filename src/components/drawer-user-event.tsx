@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import {
     addHours,
     addMinutes,
@@ -8,7 +8,7 @@ import {
     min,
     startOfDay,
     startOfHour,
-} from "date-fns";
+} from "@/lib/utils/date-time";
 import { MapPin } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -38,7 +38,6 @@ const formatDuration = (minutes: number) => {
     return rest === 0 ? `${hours} h` : `${hours} h ${rest}`;
 };
 
-/** The next full hour, for an hour: what a new event most often is. */
 const defaultSlot = () => {
     const start = startOfHour(addHours(new Date(), 1));
     return { start, end: addHours(start, 1) };
@@ -55,9 +54,7 @@ export function DrawerUserEvent({
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** The event being edited; a new one is created when absent. */
     userEvent?: UserEvent | null;
-    /** Time range to prefill a new event with, e.g. a calendar selection. */
     slot?: UserEventSlot | null;
     onSaved: () => void;
 }) {
@@ -71,29 +68,31 @@ export function DrawerUserEvent({
     const [startTime, setStartTime] = useState("");
     const [endTime, setEndTime] = useState("");
     const [openTime, setOpenTime] = useState<"start" | "end" | null>(null);
+    const [session, setSession] = useState(() => ({ open, userEvent, slot }));
     const hour12 = useHour12();
 
     const toggleTime = (field: "start" | "end") =>
         setOpenTime((current) => (current === field ? null : field));
 
-    // Reset the form each time the drawer opens, from the edited event, the
-    // selected slot or the next full hour.
-    useEffect(() => {
-        if (!open) return;
-        const range = userEvent
-            ? { start: new Date(userEvent.start), end: new Date(userEvent.end) }
-            : (slot ?? defaultSlot());
-        setTitle(userEvent?.title ?? "");
-        setLocation(userEvent?.location ?? "");
-        setNotes(userEvent?.notes ?? "");
-        setDay(startOfDay(range.start));
-        setOpenTime(null);
-        setStartTime(toTime(range.start));
-        // A selection ending at midnight belongs to the day it started on.
-        setEndTime(
-            isSameDay(range.start, range.end) ? toTime(range.end) : "23:59"
-        );
-    }, [open, userEvent, slot]);
+    if (
+        session.open !== open ||
+        session.userEvent?.id !== userEvent?.id ||
+        session.slot?.start.getTime() !== slot?.start.getTime()
+    ) {
+        setSession({ open, userEvent, slot });
+        if (open) {
+            const range = userEvent
+                ? { start: new Date(userEvent.start), end: new Date(userEvent.end) }
+                : (slot ?? defaultSlot());
+            setTitle(userEvent?.title ?? "");
+            setLocation(userEvent?.location ?? "");
+            setNotes(userEvent?.notes ?? "");
+            setDay(startOfDay(range.start));
+            setOpenTime(null);
+            setStartTime(toTime(range.start));
+            setEndTime(isSameDay(range.start, range.end) ? toTime(range.end) : "23:59");
+        }
+    }
 
     const start = atTime(day, startTime);
     const end = atTime(day, endTime);
@@ -101,7 +100,6 @@ export function DrawerUserEvent({
     const timesValid = Boolean(startTime && endTime) && duration > 0;
     const canSubmit = title.trim() !== "" && timesValid;
 
-    // Moving the start keeps the duration, like any calendar app does.
     const handleStartChange = (value: string) => {
         if (value && duration > 0) {
             const shifted = addMinutes(atTime(day, value), duration);
@@ -147,7 +145,6 @@ export function DrawerUserEvent({
         <Drawer open={open} onOpenChange={onOpenChange}>
             <DrawerContent
                 className="bg-mauria-card shadow-2xl max-h-[92dvh]"
-                // Only the creation form carries a description (the hint).
                 {...(isEdit && { "aria-describedby": undefined })}
             >
                 <DrawerHeader className="text-left">

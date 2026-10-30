@@ -1,7 +1,9 @@
 import { Absence } from "@/types/aurion";
-import { SemesterId, parseFrDate, semesterIdFromDate } from "./semesters";
+import { SemesterId, getCurrentSemesterKey, parseFrDate, semesterIdFromDate } from "./grades";
 
-export { getCurrentSemesterKey } from "./semesters";
+export { getCurrentSemesterKey };
+
+export const EMPTY_ABSENCES: Absence[] = [];
 
 export function getAbsenceSemester(absence: Absence): SemesterId | null {
     const d = parseFrDate(absence.date);
@@ -9,7 +11,6 @@ export function getAbsenceSemester(absence: Absence): SemesterId | null {
     return semesterIdFromDate(d);
 }
 
-/** Distinct semesters present in the absences, chronological order (oldest first). */
 export function getAbsenceSemesters(absences: Absence[]): SemesterId[] {
     const map = new Map<string, SemesterId>();
     for (const absence of absences) {
@@ -19,17 +20,9 @@ export function getAbsenceSemesters(absences: Absence[]): SemesterId[] {
     return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
 
-export function getAbsences({
-    semesterKey,
-    absences,
-}: {
-    semesterKey?: string | null;
-    absences: Absence[];
-}): Absence[] {
+export function getAbsences({ semesterKey, absences }: { semesterKey?: string | null; absences: Absence[] }): Absence[] {
     return (absences || []).filter((absence) => {
-        if (semesterKey) {
-            return getAbsenceSemester(absence)?.key === semesterKey;
-        }
+        if (semesterKey) return getAbsenceSemester(absence)?.key === semesterKey;
         return true;
     });
 }
@@ -43,18 +36,13 @@ export const getAbsencesDurations = (absences: Absence[]) => {
     let justifiedMinutes = 0;
     let unjustifiedMinutes = 0;
 
-    absences.forEach((absence) => {
+    for (const absence of absences) {
         const [hours, minutes] = absence.duration.split(":").map(Number);
-        const durationInMinutes = hours * 60 + minutes;
-
+        const durationInMinutes = (hours ?? 0) * 60 + (minutes ?? 0);
         totalMinutes += durationInMinutes;
-
-        if (isAbsenceJustified(absence)) {
-            justifiedMinutes += durationInMinutes;
-        } else {
-            unjustifiedMinutes += durationInMinutes;
-        }
-    });
+        if (isAbsenceJustified(absence)) justifiedMinutes += durationInMinutes;
+        else unjustifiedMinutes += durationInMinutes;
+    }
 
     const formatDuration = (minutes: number) => {
         const hours = Math.floor(minutes / 60);

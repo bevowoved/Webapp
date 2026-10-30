@@ -2,23 +2,25 @@
 
 import { memo, useMemo, useState } from "react";
 import { FileText, Download, Loader2 } from "lucide-react";
-import { AurionDownState } from "@/components/aurion-down-state";
+import { EmptyListState } from "@/components/aurion-down-state";
 import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { fetchDocuments, downloadDocument } from "@/lib/api/aurion";
+import { downloadDocument } from "@/lib/api/aurion";
+import { documentsQueryOptions } from "@/lib/hooks/use-colles";
 import { useQuery } from "@tanstack/react-query";
 import { PullToRefresh } from "@/components/pull-to-refresh";
-import { AurionDocument, DocumentsResult } from "@/types/aurion";
+import { AurionDocument, DocumentCategory } from "@/types/aurion";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { fadeIn, staggerGroup } from "@/lib/motion";
 import { CarouselItem, FilterCarousel } from "@/components/filter-carousel";
 import { toast } from "sonner";
 
-// Same key on both sides of the download state — the card looks it up to swap
-// its button for a spinner, so any mismatch leaves the button clickable.
+const EMPTY_DOCUMENTS: AurionDocument[] = Object.freeze([]) as unknown as AurionDocument[];
+const EMPTY_CATEGORIES: DocumentCategory[] = Object.freeze([]) as unknown as DocumentCategory[];
+
 const documentId = (doc: AurionDocument) =>
     `${doc.category}-${doc.docIndex}-${doc.submitParam}`;
 
@@ -29,38 +31,20 @@ export function DocumentsPage() {
     );
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const { isWarming } = useAurionWarm();
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
 
     const {
         data: result,
         refetch,
         isLoading,
-        isFetching,
-    } = useQuery<DocumentsResult, Error>({
-        queryKey: ["documents"],
-        queryFn: async (): Promise<DocumentsResult> => {
-            const res = await fetchDocuments();
-            if (!res?.success || !res.data) {
-                throw new Error("Failed to fetch documents");
-            }
-            return res.data;
-        },
-        enabled: !isWarming,
-        staleTime: 1000 * 60 * 10,
-        gcTime: 1000 * 60 * 60 * 24,
-        refetchOnWindowFocus: true,
-        placeholderData: (previousData) => previousData,
-    });
+    } = useQuery(documentsQueryOptions(!isWarming && !aurionDown));
 
-    const documents = result?.documents ?? [];
-    const categories = result?.categories ?? [];
+    const documents = result?.documents ?? EMPTY_DOCUMENTS;
+    const categories = result?.categories ?? EMPTY_CATEGORIES;
 
-    const isBusy = isWarming || isLoading || isFetching;
-    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
+    const isBusy = (isWarming && documents.length === 0) || isLoading;
     const handleRefresh = () => refetch();
 
-    // Build the filter carousel dynamically from the categories returned
-    // by the API (in Aurion's sidebar order).  Labels come directly from
-    // Aurion — no hardcoded category keys.
     const categoryItems = useMemo<CarouselItem[]>(() => {
         if (categories.length === 0) return [];
         return [
@@ -69,7 +53,6 @@ export function DocumentsPage() {
         ];
     }, [categories, t]);
 
-    // Map menuid → label for the card subtitle.
     const categoryLabels = useMemo(() => {
         const map = new Map<string, string>();
         for (const c of categories) map.set(c.menuid, c.label);
@@ -94,7 +77,6 @@ export function DocumentsPage() {
                 })
             );
         } else if (outcome.status === "handedOff") {
-            // The system browser took over — we never see the save complete.
             toast.success(t("documentsPage.downloadStarted"));
         } else {
             toast.error(t("documentsPage.downloadError"));
@@ -135,48 +117,16 @@ export function DocumentsPage() {
                             animate="show"
                             exit="exit"
                         >
-                            <div className="text-center py-12">
-                                <div className="bg-mauria-card rounded-xl shadow-md p-8 max-w-md mx-auto">
-                                    {aurionDown && documents.length === 0 ? (
-                                        <AurionDownState
-                                            message={t(
-                                                "documentsPage.noDocumentsCached"
-                                            )}
-                                        />
-                                    ) : (
-                                        <>
-                                            <div className="w-16 h-16 bg-muted-foreground/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                {isBusy ? (
-                                                    <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-                                                ) : (
-                                                    <FileText className="w-8 h-8 text-muted-foreground" />
-                                                )}
-                                            </div>
-                                            <h3 className="text-lg font-semibold mb-2">
-                                                {isBusy
-                                                    ? t("common.loading")
-                                                    : t(
-                                                          "documentsPage.noDocuments"
-                                                      )}
-                                            </h3>
-                                            {!isBusy && (
-                                                <p className="text-muted-foreground">
-                                                    {t(
-                                                        "documentsPage.noDocumentsPlaceholder"
-                                                    )}
-                                                </p>
-                                            )}
-                                            {isBusy && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    {t(
-                                                        "documentsPage.loadingHint"
-                                                    )}
-                                                </p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
+                            <EmptyListState
+                                busy={isBusy}
+                                aurionDown={aurionDown}
+                                hasCachedItems={documents.length > 0}
+                                cachedMessage={t("documentsPage.noDocumentsCached")}
+                                icon={FileText}
+                                emptyTitle={t("documentsPage.noDocuments")}
+                                emptyBody={t("documentsPage.noDocumentsPlaceholder")}
+                                loadingHint={t("documentsPage.loadingHint")}
+                            />
                         </motion.div>
                     ) : (
                         <motion.div

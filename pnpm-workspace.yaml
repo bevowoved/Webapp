@@ -1,2 +1,6 @@
-allowBuilds:
-  esbuild: true
+minimumReleaseAgeExclude:
+  - lucide-react@1.63.0
+  - framer-motion@14.7.1
+  - motion-dom@14.7.1
+  - motion-utils@14.7.0
+  - react-router@8.5.1

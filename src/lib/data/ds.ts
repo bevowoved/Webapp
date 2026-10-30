@@ -1,59 +1,53 @@
 import { DsExam } from "@/types/ds";
 
-/**
- * "Calendrier des devoirs surveillés CPGE 2" (2026/2027) — hardcoded like the
- * colles schedule. CPG2 MPI and PSI only: their Aurion planning shows a
- * generic "DS selon planning" on Fridays 13:30 - 17:30, which this table
- * replaces with the real subject and hours (see resolveDsLessons).
- * All DS sit in room C854 unless Aurion says otherwise.
- */
+type DsRow = readonly [date: string, start: string, end: string, subject: string];
 
 const DS_ROOM = "IC2 C854";
+const hydrate = (rows: readonly DsRow[]): DsExam[] => rows.map(([date, start, end, subject]) => ({ date, start, end, subject }));
 
-export const MPI_DS_2026: DsExam[] = [
-    { date: "2026-09-11", start: "13:30", end: "15:30", subject: "Fr-Ph lecture" },
-    { date: "2026-09-18", start: "13:30", end: "17:30", subject: "Info 1" },
-    { date: "2026-09-25", start: "13:30", end: "17:30", subject: "Maths 1" },
-    { date: "2026-10-02", start: "13:30", end: "17:30", subject: "Physique 1" },
-    { date: "2026-10-09", start: "13:30", end: "17:30", subject: "Info 2" },
-    { date: "2026-10-16", start: "08:00", end: "12:00", subject: "Fr-Ph 1" },
-    { date: "2026-10-16", start: "13:30", end: "15:30", subject: "Anglais 1" },
-    { date: "2026-11-06", start: "13:30", end: "17:30", subject: "Maths 2" },
-    { date: "2026-11-13", start: "13:30", end: "17:30", subject: "Physique 2" },
-    { date: "2026-11-20", start: "13:30", end: "17:30", subject: "Info 3" },
-    { date: "2026-11-27", start: "13:30", end: "17:30", subject: "Maths 3" },
-    { date: "2026-12-04", start: "13:30", end: "17:30", subject: "Physique 3" },
-    { date: "2026-12-11", start: "13:30", end: "17:30", subject: "Oraux maths" },
-    { date: "2026-12-14", start: "08:00", end: "12:00", subject: "Maths" },
-    { date: "2026-12-15", start: "08:00", end: "12:00", subject: "Physique" },
-    { date: "2026-12-15", start: "13:30", end: "16:30", subject: "Anglais" },
-    { date: "2026-12-16", start: "08:00", end: "12:00", subject: "Fr-Ph" },
-    { date: "2026-12-16", start: "13:30", end: "15:30", subject: "LV2" },
-    { date: "2026-12-17", start: "08:00", end: "12:00", subject: "Info" },
-];
+export const MPI_DS_2026: DsExam[] = hydrate([
+    ["2026-09-11", "13:30", "15:30", "Fr-Ph lecture"],
+    ["2026-09-18", "13:30", "17:30", "Info 1"],
+    ["2026-09-25", "13:30", "17:30", "Maths 1"],
+    ["2026-10-02", "13:30", "17:30", "Physique 1"],
+    ["2026-10-09", "13:30", "17:30", "Info 2"],
+    ["2026-10-16", "08:00", "12:00", "Fr-Ph 1"],
+    ["2026-10-16", "13:30", "15:30", "Anglais 1"],
+    ["2026-11-06", "13:30", "17:30", "Maths 2"],
+    ["2026-11-13", "13:30", "17:30", "Physique 2"],
+    ["2026-11-20", "13:30", "17:30", "Info 3"],
+    ["2026-11-27", "13:30", "17:30", "Maths 3"],
+    ["2026-12-04", "13:30", "17:30", "Physique 3"],
+    ["2026-12-11", "13:30", "17:30", "Oraux maths"],
+    ["2026-12-14", "08:00", "12:00", "Maths"],
+    ["2026-12-15", "08:00", "12:00", "Physique"],
+    ["2026-12-15", "13:30", "16:30", "Anglais"],
+    ["2026-12-16", "08:00", "12:00", "Fr-Ph"],
+    ["2026-12-16", "13:30", "15:30", "LV2"],
+    ["2026-12-17", "08:00", "12:00", "Info"],
+]);
 
-export const PSI_DS_2026: DsExam[] = [
-    { date: "2026-09-11", start: "13:30", end: "15:30", subject: "Fr-Ph lecture" },
-    { date: "2026-09-25", start: "13:30", end: "16:30", subject: "Maths 1" },
-    { date: "2026-10-02", start: "13:30", end: "15:30", subject: "Physique 1" },
-    { date: "2026-10-09", start: "13:30", end: "15:30", subject: "SI 1" },
-    { date: "2026-10-16", start: "08:00", end: "12:00", subject: "Fr-Ph 1" },
-    { date: "2026-10-16", start: "13:30", end: "15:30", subject: "Anglais 1" },
-    { date: "2026-11-06", start: "13:30", end: "16:30", subject: "Maths 2" },
-    { date: "2026-11-13", start: "13:30", end: "15:30", subject: "Physique 2" },
-    { date: "2026-11-20", start: "13:30", end: "15:30", subject: "SI 2" },
-    { date: "2026-11-27", start: "13:30", end: "16:30", subject: "Maths 3" },
-    { date: "2026-12-04", start: "13:30", end: "15:30", subject: "Physique 3" },
-    { date: "2026-12-11", start: "13:30", end: "17:30", subject: "Oraux maths" },
-    { date: "2026-12-14", start: "08:00", end: "12:00", subject: "Physique" },
-    { date: "2026-12-15", start: "08:00", end: "12:00", subject: "Maths" },
-    { date: "2026-12-15", start: "13:30", end: "16:30", subject: "Anglais" },
-    { date: "2026-12-16", start: "08:00", end: "12:00", subject: "Fr-Ph" },
-    { date: "2026-12-16", start: "13:30", end: "15:30", subject: "LV2" },
-    { date: "2026-12-17", start: "08:00", end: "11:00", subject: "SI" },
-];
+export const PSI_DS_2026: DsExam[] = hydrate([
+    ["2026-09-11", "13:30", "15:30", "Fr-Ph lecture"],
+    ["2026-09-25", "13:30", "16:30", "Maths 1"],
+    ["2026-10-02", "13:30", "15:30", "Physique 1"],
+    ["2026-10-09", "13:30", "15:30", "SI 1"],
+    ["2026-10-16", "08:00", "12:00", "Fr-Ph 1"],
+    ["2026-10-16", "13:30", "15:30", "Anglais 1"],
+    ["2026-11-06", "13:30", "16:30", "Maths 2"],
+    ["2026-11-13", "13:30", "15:30", "Physique 2"],
+    ["2026-11-20", "13:30", "15:30", "SI 2"],
+    ["2026-11-27", "13:30", "16:30", "Maths 3"],
+    ["2026-12-04", "13:30", "15:30", "Physique 3"],
+    ["2026-12-11", "13:30", "17:30", "Oraux maths"],
+    ["2026-12-14", "08:00", "12:00", "Physique"],
+    ["2026-12-15", "08:00", "12:00", "Maths"],
+    ["2026-12-15", "13:30", "16:30", "Anglais"],
+    ["2026-12-16", "08:00", "12:00", "Fr-Ph"],
+    ["2026-12-16", "13:30", "15:30", "LV2"],
+    ["2026-12-17", "08:00", "11:00", "SI"],
+]);
 
-/** Keyed by the class label returned by /colles/group. */
 export const DS_BY_CLASS: Record<string, { room: string; exams: DsExam[] }> = {
     MPI: { room: DS_ROOM, exams: MPI_DS_2026 },
     PSI: { room: DS_ROOM, exams: PSI_DS_2026 },

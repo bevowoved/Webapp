@@ -32,74 +32,78 @@ import {
     GRADE_RARITIES,
     GRADE_SCALE,
     getRarityForGrade,
-    randomGradeValue,
+    gradeValueFrom,
     type GradeRarity,
-} from "@/lib/utils/grade-rarity";
-import { useGradeReveal } from "./use-grade-reveal";
+} from "@/lib/utils/grades";
+import { triggerHapticPattern } from "@/lib/utils/sfx";
+import {
+    formatDelta,
+    hashSeed,
+    mulberry32,
+    TREND_BADGE_CLASS,
+    TREND_LABEL_CLASS,
+    TREND_VALUE_CLASS,
+    trendBadgeStyle,
+    trendLabelKey,
+    useGradeReveal,
+} from "./use-grade-reveal";
 
 const REEL_COUNT = 3;
 const ROW_HEIGHT = 64;
-/** Rows visible in each reel window, the payline runs through the middle one */
+
 const VISIBLE_ROWS = 3;
-/** Index of the winning value on each strip, one row is kept above it */
+
 const WINNER_ROW = 2;
-/** Top speed of every reel, in px/s */
+
 const SPIN_SPEED = 2400;
 const SPIN_UP = 0.35;
 const SPIN_DOWN = 0.55;
-/** When each reel locks, in seconds after the lever pull */
-const STOP_TIMES = [1.6, 2.4, 3.2];
-/** Extra suspense on the last reel before a big win */
+
+const STOP_TIMES = Array.from({ length: REEL_COUNT }, (_, index) => 16 + index * 8).map((ms) => ms / 10);
+
 const TENSION_TIME = 1.4;
 const EASE_IN: [number, number, number, number] = [0.42, 0, 1, 1];
-/** Lands a touch past the payline and settles back, like a reel in its notch */
+
 const EASE_STOP: [number, number, number, number] = [0.3, 1.25, 0.6, 1];
-/** Bézier slopes where each eased segment meets the cruise, so speeds match */
+
 const EASE_IN_END_SLOPE = (1 - EASE_IN[1]) / (1 - EASE_IN[0]);
 const EASE_STOP_START_SLOPE = EASE_STOP[1] / EASE_STOP[0];
 const LEVER_LENGTH = 84;
 const PLACEHOLDER = "–";
 
-const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(pattern);
-    }
+const COIN_DISCS = [-0.5, -0.25, 0, 0.25, 0.5];
+
+const SIDE_ARROW: CSSProperties = {
+    borderTop: "7px solid transparent",
+    borderBottom: "7px solid transparent",
+    filter: "drop-shadow(0 0 4px rgba(244,63,94,0.8))",
 };
 
-/** Each slot holds about a third of the grade: colour it on that share. */
+const vibrate = (pattern: number | number[]) => triggerHapticPattern(pattern);
+
 const getSlotRarity = (value: number): GradeRarity =>
     getRarityForGrade(value * REEL_COUNT);
 
-/** Same precision as the Aurion grade, at least one decimal, at most two. */
 function countDecimals(raw: string): number {
     const digits = raw.trim().replace(",", ".").split(".")[1]?.length ?? 0;
     return Math.min(Math.max(digits, 1), 2);
 }
 
-/**
- * Three random-looking shares that add up exactly to the grade. Worked out in
- * integer steps of the grade's precision so no float drift ever shows.
- */
-function splitGrade(value: number, decimals: number): number[] {
+function splitGrade(value: number, decimals: number, random: () => number): number[] {
     const unit = 10 ** decimals;
     const total = Math.round(value * unit);
-    // Never a lopsided 0 + 0 + 14: each share stays between ~1/6 and ~3/5
-    const weights = Array.from(
-        { length: REEL_COUNT },
-        () => 0.5 + Math.random()
-    );
+
+    const weights = Array.from({ length: REEL_COUNT }, () => 0.5 + random());
     const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
-    const steps = weights.map((weight) =>
-        Math.floor((total * weight) / weightSum)
-    );
+    const steps = weights.map((weight) => Math.floor((total * weight) / weightSum));
     const rest = total - steps.reduce((sum, step) => sum + step, 0);
-    steps[Math.floor(Math.random() * REEL_COUNT)]! += rest;
+    steps[Math.floor(random() * REEL_COUNT)]! += rest;
     return steps.map((step) => step / unit);
 }
 
-const randomSlotValue = (decimals: number): number => {
+const randomSlotValue = (decimals: number, random: () => number): number => {
     const unit = 10 ** decimals;
-    return Math.round((randomGradeValue() / REEL_COUNT) * unit) / unit;
+    return Math.round((gradeValueFrom(random) / REEL_COUNT) * unit) / unit;
 };
 
 type ReelPlan = {
@@ -110,14 +114,11 @@ type ReelPlan = {
     duration: number;
 };
 
-/**
- * One strip per reel, long enough to scroll at full speed until its stop
- * time: spin up, cruise, then a short braking segment onto the winner.
- */
 function planReel(
     stopTime: number,
     winner: number | null,
-    decimals: number
+    decimals: number,
+    random: () => number
 ): ReelPlan {
     const cruise = stopTime - SPIN_UP - SPIN_DOWN;
     const upDistance = (SPIN_SPEED * SPIN_UP) / EASE_IN_END_SLOPE;
@@ -125,13 +126,13 @@ function planReel(
     const rows = Math.round(
         (upDistance + SPIN_SPEED * cruise + downDistance) / ROW_HEIGHT
     );
-    // The row at index k sits on the payline when y = -(k - 1) * ROW_HEIGHT
+
     const endY = -(WINNER_ROW - 1) * ROW_HEIGHT;
     const startY = endY - rows * ROW_HEIGHT;
 
     const values: (number | null)[] = Array.from(
         { length: WINNER_ROW + rows + 2 },
-        () => randomSlotValue(decimals)
+        () => randomSlotValue(decimals, random)
     );
     values[WINNER_ROW] = winner;
 
@@ -224,7 +225,7 @@ function Reel({
     onLocked: (index: number) => void;
 }) {
     const y = useMotionValue(instant ? plan.endY : plan.keyframes[0]!);
-    // Motion blur that follows the actual speed, so it fades while braking
+
     const velocity = useVelocity(y);
     const filter = useTransform(
         velocity,
@@ -240,7 +241,7 @@ function Reel({
             times: plan.times,
             ease: [EASE_IN, "linear", EASE_STOP],
         });
-        // A stopped animation still resolves: only a real stop locks the reel
+
         let cancelled = false;
         controls.then(() => {
             if (!cancelled) onLocked(index);
@@ -277,7 +278,6 @@ function Reel({
                 </motion.div>
             </motion.div>
 
-            {/* Drum shading and a glass reflection on top */}
             <div
                 className="pointer-events-none absolute inset-0"
                 style={{
@@ -328,10 +328,6 @@ function Reel({
     );
 }
 
-/**
- * The side lever: drag the knob down past the pivot, or just tap it. The rod
- * swings towards the viewer, so the knob grows as it comes down.
- */
 function Lever({
     disabled,
     label,
@@ -340,7 +336,7 @@ function Lever({
 }: {
     disabled: boolean;
     label: string;
-    /** Bumped from outside (the hint button) to pull the lever */
+
     pullRequest: number;
     onPull: () => void;
 }) {
@@ -376,7 +372,7 @@ function Lever({
 
     return (
         <div className="absolute inset-y-0 right-0 w-7">
-            {/* Bracket bolted onto the cabinet side */}
+
             <div
                 className="absolute left-0 top-1/2 h-14 w-5 -translate-y-1/2 rounded-r-lg"
                 style={{
@@ -418,7 +414,7 @@ function Lever({
                     }}
                     onClick={(event) => {
                         event.stopPropagation();
-                        // A drag released too early must not pull on its click
+
                         if (panned.current) {
                             panned.current = false;
                             return;
@@ -459,23 +455,21 @@ function Lever({
     );
 }
 
-/** Random tumble on one axis, either direction */
-const randomSpin = () =>
-    (Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720);
+const randomSpin = (random: () => number) =>
+    (random() > 0.5 ? 1 : -1) * (360 + random() * 720);
 
-const randomTumble = () => ({
-    spinX: randomSpin(),
-    spinY: randomSpin(),
-    spinZ: randomSpin(),
+const randomTumble = (random: () => number) => ({
+    spinX: randomSpin(random),
+    spinY: randomSpin(random),
+    spinZ: randomSpin(random),
 });
 
-/** Stacked discs: the coin keeps a body when seen edge-on */
 function Coin3D({ size }: { size: number }) {
     const thickness = Math.max(3, size * 0.16);
 
     return (
         <>
-            {[-0.5, -0.25, 0, 0.25, 0.5].map((offset) => {
+            {COIN_DISCS.map((offset) => {
                 const face = offset === 0.5 || offset === -0.5;
                 return (
                     <span
@@ -497,27 +491,24 @@ function Coin3D({ size }: { size: number }) {
     );
 }
 
-/** Coins spat out of the payline, then pulled down by gravity. */
 function CoinBurst({ rarity }: { rarity: GradeRarity }) {
     const tier = GRADE_RARITIES.indexOf(rarity);
 
-    const coins = useMemo(
-        () =>
-            Array.from({ length: 6 + tier * 4 }, () => {
-                const angle =
-                    -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
-                const speed = 110 + Math.random() * (70 + tier * 25);
-                return {
-                    dx: Math.cos(angle) * speed,
-                    dy: Math.sin(angle) * speed,
-                    size: 12 + Math.random() * 8,
-                    ...randomTumble(),
-                    duration: 1 + Math.random() * 0.5,
-                    delay: Math.random() * 0.15,
-                };
-            }),
-        [tier]
-    );
+    const coins = useMemo(() => {
+        const random = mulberry32(hashSeed(rarity.id, tier, "coin-burst"));
+        return Array.from({ length: 6 + tier * 4 }, () => {
+            const angle = -Math.PI / 2 + (random() - 0.5) * Math.PI * 1.4;
+            const speed = 110 + random() * (70 + tier * 25);
+            return {
+                dx: Math.cos(angle) * speed,
+                dy: Math.sin(angle) * speed,
+                size: 12 + random() * 8,
+                ...randomTumble(random),
+                duration: 1 + random() * 0.5,
+                delay: random() * 0.15,
+            };
+        });
+    }, [tier, rarity.id]);
 
     return (
         <div
@@ -557,20 +548,18 @@ function CoinBurst({ rarity }: { rarity: GradeRarity }) {
     );
 }
 
-/** Big wins only: the whole screen rains coins. */
 function CoinRain() {
-    const coins = useMemo(
-        () =>
-            Array.from({ length: 30 }, () => ({
-                left: Math.random() * 100,
-                size: 14 + Math.random() * 12,
-                drift: (Math.random() - 0.5) * 80,
-                ...randomTumble(),
-                duration: 1.6 + Math.random() * 1.1,
-                delay: Math.random() * 0.9,
-            })),
-        []
-    );
+    const coins = useMemo(() => {
+        const random = mulberry32(hashSeed("slot-coin-rain"));
+        return Array.from({ length: 30 }, () => ({
+            left: random() * 100,
+            size: 14 + random() * 12,
+            drift: (random() - 0.5) * 80,
+            ...randomTumble(random),
+            duration: 1.6 + random() * 1.1,
+            delay: random() * 0.9,
+        }));
+    }, []);
 
     return (
         <div
@@ -608,7 +597,6 @@ function CoinRain() {
     );
 }
 
-/** The running total under the reels, an old LED counter. */
 function TotalDisplay({
     label,
     text,
@@ -649,7 +637,6 @@ function TotalDisplay({
     );
 }
 
-/** Full-screen slot machine: three reels whose values add up to the grade. */
 export function SlotMachine({
     grade,
     onClose,
@@ -669,23 +656,25 @@ export function SlotMachine({
         subjectLabel,
         dateLabel,
     } = useGradeReveal(grade);
-    // Nothing to split for an unparseable grade: show it at once
+
     const skipSpin = instant || value === null;
     const decimals = countDecimals(grade.grade);
 
     const { parts, plans } = useMemo(() => {
-        const parts = value === null ? null : splitGrade(value, decimals);
+        const random = mulberry32(hashSeed(grade.date, grade.code, grade.name, decimals, bigWin ? 1 : 0));
+        const parts = value === null ? null : splitGrade(value, decimals, random);
         const plans = STOP_TIMES.map((stopTime, index) =>
             planReel(
                 index === REEL_COUNT - 1 && bigWin
                     ? stopTime + TENSION_TIME
                     : stopTime,
                 parts?.[index] ?? null,
-                decimals
+                decimals,
+                random
             )
         );
         return { parts, plans };
-    }, [value, decimals, bigWin]);
+    }, [value, decimals, bigWin, grade.date, grade.code, grade.name]);
 
     const [pulled, setPulled] = useState(skipSpin);
     const [locked, setLocked] = useState<boolean[]>(() =>
@@ -705,7 +694,6 @@ export function SlotMachine({
         );
     }, []);
 
-    // Let the last reel settle before the payout
     useEffect(() => {
         if (!allLocked || revealed) return;
         const timeout = window.setTimeout(() => setRevealed(true), 250);
@@ -753,7 +741,7 @@ export function SlotMachine({
             transition={{ duration: 0.45, ease: "easeInOut" }}
             onClick={revealed ? onClose : undefined}
         >
-            {/* Casino carpet: diamond pattern under a warm spotlight */}
+
             <div
                 className="pointer-events-none absolute inset-0"
                 style={{
@@ -801,7 +789,7 @@ export function SlotMachine({
                 transition={{ duration: 0.55, ease: "easeOut" }}
             >
                 <div className="relative w-full px-7">
-                    {/* Cabinet: gold trim around a lacquered red body */}
+
                     <div
                         className="rounded-[28px] p-[3px]"
                         style={{
@@ -897,7 +885,6 @@ export function SlotMachine({
                                     )}
                                 </div>
 
-                                {/* The shares add up: + between the reels */}
                                 {[1, 2].map((gap) => (
                                     <span
                                         key={gap}
@@ -910,24 +897,13 @@ export function SlotMachine({
                                     </span>
                                 ))}
 
-                                {/* Payline markers */}
                                 <span
                                     className="absolute -left-[7px] top-1/2 size-0 -translate-y-1/2"
-                                    style={{
-                                        borderTop: "7px solid transparent",
-                                        borderBottom: "7px solid transparent",
-                                        borderLeft: "9px solid #f43f5e",
-                                        filter: "drop-shadow(0 0 4px rgba(244,63,94,0.8))",
-                                    }}
+                                    style={{ ...SIDE_ARROW, borderLeft: "9px solid #f43f5e" }}
                                 />
                                 <span
                                     className="absolute -right-[7px] top-1/2 size-0 -translate-y-1/2"
-                                    style={{
-                                        borderTop: "7px solid transparent",
-                                        borderBottom: "7px solid transparent",
-                                        borderRight: "9px solid #f43f5e",
-                                        filter: "drop-shadow(0 0 4px rgba(244,63,94,0.8))",
-                                    }}
+                                    style={{ ...SIDE_ARROW, borderRight: "9px solid #f43f5e" }}
                                 />
 
                                 <AnimatePresence>
@@ -1048,11 +1024,8 @@ export function SlotMachine({
 
                                 {delta !== null && (
                                     <motion.div
-                                        className="flex items-center gap-2 rounded-sm px-3 py-1.5"
-                                        style={{
-                                            backgroundColor: `${trendColor}1f`,
-                                            boxShadow: `inset 0 0 0 1px ${trendColor}66`,
-                                        }}
+                                        className={TREND_BADGE_CLASS}
+                                        style={trendBadgeStyle(trendColor)}
                                         initial={{ opacity: 0, scale: 0.9 }}
                                         animate={{ opacity: 1, scale: 1 }}
                                         transition={{
@@ -1072,20 +1045,16 @@ export function SlotMachine({
                                             />
                                         )}
                                         <span
-                                            className="font-mono text-[11px] font-bold uppercase tracking-wider"
+                                            className={TREND_LABEL_CLASS}
                                             style={{ color: trendColor }}
                                         >
-                                            {t(
-                                                above
-                                                    ? "gradesPage.caseOpening.aboveAverage"
-                                                    : "gradesPage.caseOpening.belowAverage"
-                                            )}
+                                            {t(trendLabelKey(above))}
                                         </span>
                                         <span
-                                            className="font-mono text-[11px] font-bold"
+                                            className={TREND_VALUE_CLASS}
                                             style={{ color: trendColor }}
                                         >
-                                            {`${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(2)}`}
+                                            {formatDelta(delta)}
                                         </span>
                                     </motion.div>
                                 )}

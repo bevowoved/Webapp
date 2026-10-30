@@ -2,11 +2,16 @@
 
 import { getFromStorage, saveToStorage } from "@/lib/utils/storage";
 import type React from "react";
-import { createContext, useContext, useState } from "react";
+import { createContext, use, useState } from "react";
 
 const BACKGROUND_STORAGE_KEY = "background";
 
-export const BACKGROUND_OPTIONS = ["particles", "grid", "topography", "dot-pattern"] as const;
+const BACKGROUND_OPTIONS = [
+    "particles",
+    "grid",
+    "topography",
+    "dot-pattern",
+] as const;
 
 export type BackgroundName = (typeof BACKGROUND_OPTIONS)[number];
 
@@ -17,7 +22,8 @@ type BackgroundProviderProps = {
 
 type BackgroundContextValue = {
     background: BackgroundName;
-    setBackground: (background: BackgroundName) => void;
+    setBackground: (background: string) => void;
+    options: typeof BACKGROUND_OPTIONS;
 };
 
 function validateBackground(
@@ -33,6 +39,7 @@ function validateBackground(
 const BackgroundProviderContext = createContext<BackgroundContextValue>({
     background: BACKGROUND_OPTIONS[0],
     setBackground: () => undefined,
+    options: BACKGROUND_OPTIONS,
 });
 
 export function BackgroundProvider({
@@ -46,23 +53,23 @@ export function BackgroundProvider({
         )
     );
 
-    const setBackground = (nextBackground: BackgroundName) => {
-        setBackgroundState(nextBackground);
-        saveToStorage(BACKGROUND_STORAGE_KEY, nextBackground);
+    const setBackground = (nextBackground: string) => {
+        const valid = validateBackground(nextBackground, background);
+        setBackgroundState(valid);
+        saveToStorage(BACKGROUND_STORAGE_KEY, valid);
     };
 
     return (
-        <BackgroundProviderContext.Provider
-            value={{ background, setBackground }}
+        <BackgroundProviderContext
+            value={{ background, setBackground, options: BACKGROUND_OPTIONS }}
         >
             {children}
-        </BackgroundProviderContext.Provider>
+        </BackgroundProviderContext>
     );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const useBackground = () => {
-    const context = useContext(BackgroundProviderContext);
+    const context = use(BackgroundProviderContext);
     if (context === undefined) {
         throw new Error(
             "useBackground must be used within a BackgroundProvider"

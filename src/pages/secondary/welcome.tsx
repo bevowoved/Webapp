@@ -34,10 +34,6 @@ const WELCOME_SECTIONS: WelcomeSection[] = [
 export function WelcomePage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
-    // Warm every cache we can while the welcome screen is shown — the
-    // prefetch continues in the background; the preparation page takes
-    // over (with the loading tips) if it isn't done by the time the campus
-    // is chosen.
     useWelcomePrefetch();
 
     useEffect(() => {
@@ -103,8 +99,6 @@ export function WelcomePage() {
                         </Alert>
                     </motion.div>
                 ))}
-                {/* Start button right after the info boxes, closing the
-                    entrance cascade. */}
                 <motion.div variants={fadeIn} className="pt-2">
                     <Button
                         size="lg"

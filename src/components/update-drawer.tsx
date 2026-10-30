@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CodeXml, Eye } from "lucide-react";
 import {
     Drawer,
@@ -12,9 +13,25 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { formatUpdateContentList } from "@/lib/utils/updates";
+import { fetchUpdates } from "@/lib/api/helper";
+import { useQuery } from "@tanstack/react-query";
 import { UpdatesEntry } from "@/types/data";
+import { getFromStorage, saveToStorage } from "@/lib/utils/storage";
 import { useTranslation } from "react-i18next";
+
+const LAST_SEEN_UPDATE_KEY = "lastSeenUpdate";
+
+const splitContent = (content: string): string[] => {
+    if (!content) return [];
+    return content
+        .replace(/^-+\s*/, "")
+        .split(" - ")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+};
+
+const formatUpdateContentList = (content: string): string[] =>
+    splitContent(content);
 
 export function UpdateDrawer({
     update,
@@ -26,6 +43,8 @@ export function UpdateDrawer({
     onOpenChange: (open: boolean) => void;
 }) {
     const { t } = useTranslation();
+    const visual = formatUpdateContentList(update.contentVisu ?? "");
+    const technical = formatUpdateContentList(update.contentDev ?? "");
 
     return (
         <Drawer open={open} onOpenChange={onOpenChange}>
@@ -52,9 +71,7 @@ export function UpdateDrawer({
                         </AlertTitle>
                         <AlertDescription>
                             <ul className="list-disc pl-5 space-y-1 text-sm mb-4">
-                                {formatUpdateContentList(
-                                    update.contentVisu ?? ""
-                                ).map((item, i) => (
+                                {visual.map((item, i) => (
                                     <li key={i}>{item}</li>
                                 ))}
                             </ul>
@@ -68,9 +85,7 @@ export function UpdateDrawer({
                         </AlertTitle>
                         <AlertDescription>
                             <ul className="list-disc pl-5 space-y-1 text-sm mb-4">
-                                {formatUpdateContentList(
-                                    update.contentDev ?? ""
-                                ).map((item, i) => (
+                                {technical.map((item, i) => (
                                     <li key={i}>{item}</li>
                                 ))}
                             </ul>
@@ -85,5 +100,37 @@ export function UpdateDrawer({
                 </DrawerFooter>
             </DrawerContent>
         </Drawer>
+    );
+}
+
+export default function NewUpdateDrawer() {
+    const [dismissed, setDismissed] = useState<string | null>(null);
+
+    const { data: updates } = useQuery({
+        queryKey: ["updates"],
+        queryFn: fetchUpdates,
+        staleTime: 1000 * 60 * 5,
+        gcTime: 1000 * 60 * 60 * 24,
+        refetchOnMount: true,
+    });
+
+    const update = updates?.[0] ?? null;
+    const version = update?.version ?? null;
+    const seen = getFromStorage(LAST_SEEN_UPDATE_KEY);
+    const open = Boolean(version) && seen !== version && dismissed !== version;
+
+    if (update === null) return null;
+
+    return (
+        <UpdateDrawer
+            update={update}
+            open={open}
+            onOpenChange={(next) => {
+                if (!next) {
+                    if (version) saveToStorage(LAST_SEEN_UPDATE_KEY, version);
+                    setDismissed(version);
+                }
+            }}
+        />
     );
 }

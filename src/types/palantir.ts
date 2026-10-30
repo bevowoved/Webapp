@@ -2,20 +2,11 @@ export type PalantirEntityKind = "room" | "group" | "teacher";
 
 export interface PalantirEntity {
     kind: PalantirEntityKind;
-    /** Opaque key handed back to the API to get the schedule. */
     id: string;
     label: string;
-    /** Secondary line: the class for a group, the full name for a room. */
     detail: string;
-    /** Aurion's own kind for a group: "Promotion" or "Planning". */
     type: string;
-    /** Indexed lessons behind the entity. Always 0 for a group. */
     count: number;
-    /**
-     * The entity's khôlles group, for a student's class entity — resolved
-     * server-side off the private roster by /palantir/people. Absent for
-     * everything else, including a class opened from the normal search.
-     */
     collesGroup?: string | null;
 }
 
@@ -29,7 +20,6 @@ export interface PalantirIndexStatus {
     expiresAt: number | null;
     windowStart: number | null;
     windowEnd: number | null;
-    /** The index is past its expiry but still served while rebuilding. */
     stale: boolean;
     error: string | null;
     failed: string[];
@@ -45,21 +35,16 @@ export interface PalantirSearchResult {
     status: PalantirIndexStatus;
 }
 
-/** A teacher of the index. Admin-only results, invisible to everyone else. */
 export interface PalantirTeacher {
-    /** As Aurion writes it, e.g. "Monsieur BELLEUDY". */
     name: string;
     lessons: number;
 }
 
-/** A student of a promotion roster. Admin-only results. */
 export interface PalantirStudent {
     firstName: string;
     lastName: string;
     className: string;
-    /** The class as a Palantir entity id, to open its planning on click. */
     groupId: string;
-    /** The student's khôlles group, resolved server-side. Null if unknown. */
     collesGroup: string | null;
 }
 

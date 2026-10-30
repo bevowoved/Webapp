@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/select";
 import {
     useBackground,
-    BACKGROUND_OPTIONS,
     type BackgroundName,
 } from "@/components/background-provider";
 import { Separator } from "@/components/ui/separator";
@@ -68,26 +67,120 @@ import {
     type Campus,
 } from "@/lib/utils/campus";
 
+type SelectOption = { value: string; label: string };
+
 type SelectorSetting = {
     icon: LucideIcon;
     title: string;
     value: string;
     selectValue: string;
     onValueChange: (value: string) => void;
-    options: { value: string; label: string }[];
+    options: SelectOption[];
 };
 
-// A discrete section heading: the settings page reads as a flat list
-// without them, the groups below have nothing to hang on to. Centered like
-// the experimental header it mirrors.
+type ToggleSetting = {
+    icon: LucideIcon;
+    id: string;
+    title: string;
+    description: string;
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+};
+
 const SectionTitle = ({ title }: { title: string }) => (
-    <motion.div
-        variants={fadeIn}
-        className="flex items-center justify-center"
-    >
+    <motion.div variants={fadeIn} className="flex items-center justify-center">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {title}
         </h2>
+    </motion.div>
+);
+
+const SettingRow = ({
+    icon: Icon,
+    label,
+    description,
+    htmlFor,
+    control,
+}: {
+    icon: LucideIcon;
+    label: string;
+    description: string;
+    htmlFor?: string;
+    control: React.ReactNode;
+}) => (
+    <motion.div
+        variants={fadeIn}
+        className="flex items-center justify-between gap-4"
+    >
+        <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
+            <Icon className="h-5 w-5 shrink-0" />
+            <div className="flex min-w-0 flex-col items-start">
+                <Label
+                    htmlFor={htmlFor}
+                    className={htmlFor ? "cursor-pointer text-left" : "cursor-default text-left"}
+                >
+                    {label}
+                </Label>
+                <span className="text-xs text-muted-foreground text-left">
+                    {description}
+                </span>
+            </div>
+        </div>
+        <div className="flex shrink-0 justify-end">{control}</div>
+    </motion.div>
+);
+
+const SelectSetting = ({ setting }: { setting: SelectorSetting }) => (
+    <SettingRow
+        icon={setting.icon}
+        label={setting.title}
+        description={setting.value}
+        control={
+            <Select
+                value={setting.selectValue}
+                onValueChange={setting.onValueChange}
+            >
+                <SelectTrigger
+                    className="h-8 w-[150px] justify-between rounded-md border border-border/50 px-2 text-xs focus:ring-0 focus:ring-offset-0"
+                    aria-label={setting.title}
+                >
+                    <SelectValue
+                        placeholder={setting.title}
+                        className="!items-end flex"
+                    />
+                </SelectTrigger>
+                <SelectContent className="text-xs">
+                    {setting.options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        }
+    />
+);
+
+const SwitchSetting = ({ setting }: { setting: ToggleSetting }) => (
+    <SettingRow
+        icon={setting.icon}
+        label={setting.title}
+        description={setting.description}
+        htmlFor={setting.id}
+        control={
+            <Switch
+                id={setting.id}
+                checked={setting.checked}
+                onCheckedChange={setting.onCheckedChange}
+                aria-label={setting.title}
+            />
+        }
+    />
+);
+
+const SeparatorRow = () => (
+    <motion.div variants={fadeIn}>
+        <Separator />
     </motion.div>
 );
 
@@ -96,7 +189,7 @@ export function SettingsPage() {
     const { theme, setTheme } = useTheme();
     const gradeRevealMode = useGradeRevealMode();
     const palantirTheme = usePalantirTheme();
-    const { background, setBackground } = useBackground();
+    const { background, setBackground, options } = useBackground();
     const selectedBackgroundLabel = t(
         `sidebar.backgroundParameter.${background}`
     );
@@ -106,8 +199,6 @@ export function SettingsPage() {
 
         const mode = value as GradeRevealMode;
         setGradeRevealMode(mode);
-        // Switching between two effects keeps the grades waiting to be opened,
-        // only leaving or entering "off" starts from a clean slate
         if ((gradeRevealMode === "off") !== (mode === "off")) {
             resetGradeTracking();
         }
@@ -115,9 +206,7 @@ export function SettingsPage() {
 
     const handleBackgroundChange = (value: string) => {
         if (!value) return;
-        if (BACKGROUND_OPTIONS.includes(value as BackgroundName)) {
-            setBackground(value as BackgroundName);
-        }
+        setBackground(value as BackgroundName);
     };
 
     const themeDisplay = {
@@ -146,14 +235,6 @@ export function SettingsPage() {
         setCampus(newCampus);
     };
 
-    const handleRestaurantMenuToggle = (enabled: boolean) => {
-        setRestaurantMenuEnabled(enabled);
-    };
-
-    const handleExtraTimeToggle = (enabled: boolean) => {
-        setExtraTimeEnabled(enabled);
-    };
-
     useEffect(() => {
         applyScale(size);
     }, [size]);
@@ -161,6 +242,31 @@ export function SettingsPage() {
     useEffect(() => {
         applyLocale(locale);
     }, [locale]);
+
+    const themeOptions: SelectOption[] = (
+        Object.keys(themeDisplay) as Array<keyof typeof themeDisplay>
+    ).map((key) => ({
+        value: key,
+        label: themeDisplay[key].label,
+    }));
+
+    const sizeOptions: SelectOption[] = [
+        { value: "petit", label: t("sidebar.sizeParameter.small") },
+        { value: "moyen", label: t("sidebar.sizeParameter.medium") },
+        { value: "grand", label: t("sidebar.sizeParameter.large") },
+    ];
+
+    const localeOptions: SelectOption[] = [
+        { value: "fr-FR", label: t("sidebar.languageParameter.fr-FR") },
+        { value: "en-US", label: t("sidebar.languageParameter.en-US") },
+        { value: "es-ES", label: t("sidebar.languageParameter.es-ES") },
+    ];
+
+    const sizeLabels: Record<SizeOption, string> = {
+        petit: t("sidebar.sizeParameter.small"),
+        moyen: t("sidebar.sizeParameter.medium"),
+        grand: t("sidebar.sizeParameter.large"),
+    };
 
     const appearanceSelectors: SelectorSetting[] = [
         {
@@ -170,36 +276,7 @@ export function SettingsPage() {
             selectValue: theme,
             onValueChange: (value: string) =>
                 value && setTheme(value as typeof theme),
-            options: [
-                {
-                    value: "light",
-                    label: t("sidebar.themeParameter.light"),
-                },
-                {
-                    value: "dark",
-                    label: t("sidebar.themeParameter.dark"),
-                },
-                {
-                    value: "oled",
-                    label: t("sidebar.themeParameter.oled"),
-                },
-                {
-                    value: "cherry",
-                    label: t("sidebar.themeParameter.cherry"),
-                },
-                {
-                    value: "ocean",
-                    label: t("sidebar.themeParameter.ocean"),
-                },
-                {
-                    value: "forest",
-                    label: t("sidebar.themeParameter.forest"),
-                },
-                {
-                    value: "pride",
-                    label: t("sidebar.themeParameter.pride"),
-                },
-            ],
+            options: themeOptions,
         },
         {
             icon: Wallpaper,
@@ -207,7 +284,7 @@ export function SettingsPage() {
             value: selectedBackgroundLabel,
             selectValue: background,
             onValueChange: handleBackgroundChange,
-            options: BACKGROUND_OPTIONS.map((option) => ({
+            options: options.map((option) => ({
                 value: option,
                 label: t(`sidebar.backgroundParameter.${option}`),
             })),
@@ -215,28 +292,10 @@ export function SettingsPage() {
         {
             icon: ImageUpscale,
             title: t("sidebar.sizeParameter.title"),
-            value:
-                size === "petit"
-                    ? t("sidebar.sizeParameter.small")
-                    : size === "moyen"
-                      ? t("sidebar.sizeParameter.medium")
-                      : t("sidebar.sizeParameter.large"),
+            value: sizeLabels[size],
             selectValue: size,
             onValueChange: (v: string) => v && setSize(v as SizeOption),
-            options: [
-                {
-                    value: "petit",
-                    label: t("sidebar.sizeParameter.small"),
-                },
-                {
-                    value: "moyen",
-                    label: t("sidebar.sizeParameter.medium"),
-                },
-                {
-                    value: "grand",
-                    label: t("sidebar.sizeParameter.large"),
-                },
-            ],
+            options: sizeOptions,
         },
     ];
 
@@ -244,26 +303,10 @@ export function SettingsPage() {
         {
             icon: Languages,
             title: t("sidebar.languageParameter.title"),
-            value:
-                locale === "fr-FR"
-                    ? t("sidebar.languageParameter.fr-FR")
-                    : t("sidebar.languageParameter.en-US"),
+            value: localeOptions.find((o) => o.value === locale)?.label ?? "",
             selectValue: locale,
             onValueChange: (v: string) => v && setLocale(v as LocaleOption),
-            options: [
-                {
-                    value: "fr-FR",
-                    label: t("sidebar.languageParameter.fr-FR"),
-                },
-                {
-                    value: "en-US",
-                    label: t("sidebar.languageParameter.en-US"),
-                },
-                {
-                    value: "es-ES",
-                    label: t("sidebar.languageParameter.es-ES"),
-                },
-            ],
+            options: localeOptions,
         },
         {
             icon: School,
@@ -278,51 +321,28 @@ export function SettingsPage() {
         },
     ];
 
-    const renderSelector = (setting: SelectorSetting, index: number) => (
-        <motion.div
-            key={index}
-            variants={fadeIn}
-            className="flex items-center justify-between gap-4"
-        >
-            <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
-                <setting.icon className="h-5 w-5 shrink-0" />
-                <div className="flex min-w-0 flex-col items-start">
-                    <Label className="cursor-default text-left">
-                        {setting.title}
-                    </Label>
-                    <span className="text-xs text-muted-foreground text-left">
-                        {setting.value}
-                    </span>
-                </div>
-            </div>
-            <div className="flex shrink-0 justify-end">
-                <Select
-                    value={setting.selectValue}
-                    onValueChange={setting.onValueChange}
-                >
-                    <SelectTrigger
-                        className="h-8 w-[150px] justify-between rounded-md border border-border/50 px-2 text-xs focus:ring-0 focus:ring-offset-0"
-                        aria-label={setting.title}
-                    >
-                        <SelectValue
-                            placeholder={setting.title}
-                            className="!items-end flex"
-                        />
-                    </SelectTrigger>
-                    <SelectContent className="text-xs">
-                        {setting.options.map((option) => (
-                            <SelectItem
-                                key={option.value}
-                                value={option.value}
-                            >
-                                {option.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-        </motion.div>
-    );
+    const toggles: ToggleSetting[] = [
+        {
+            icon: UtensilsCrossed,
+            id: "restaurant-menu",
+            title: t("sidebar.restaurantParameter.title"),
+            description: restaurantMenuEnabled
+                ? t("sidebar.restaurantParameter.enabled")
+                : t("sidebar.restaurantParameter.disabled"),
+            checked: restaurantMenuEnabled,
+            onCheckedChange: setRestaurantMenuEnabled,
+        },
+        {
+            icon: Hourglass,
+            id: "extra-time",
+            title: t("sidebar.extraTimeParameter.title"),
+            description: extraTimeEnabled
+                ? t("sidebar.extraTimeParameter.enabled")
+                : t("sidebar.extraTimeParameter.disabled"),
+            checked: extraTimeEnabled,
+            onCheckedChange: setExtraTimeEnabled,
+        },
+    ];
 
     return (
         <motion.div
@@ -332,84 +352,25 @@ export function SettingsPage() {
             animate="show"
         >
             <SectionTitle title={t("settingsPage.sections.general")} />
-            {generalSelectors.map(renderSelector)}
+            {generalSelectors.map((setting) => (
+                <SelectSetting key={setting.title} setting={setting} />
+            ))}
 
-            <motion.div variants={fadeIn}>
-                <Separator />
-            </motion.div>
+            <SeparatorRow />
 
             <SectionTitle title={t("settingsPage.sections.studentLife")} />
+            {toggles.map((setting) => (
+                <SwitchSetting key={setting.id} setting={setting} />
+            ))}
 
-            <motion.div
-                variants={fadeIn}
-                className="flex items-center justify-between gap-4"
-            >
-                <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
-                    <UtensilsCrossed className="h-5 w-5 shrink-0" />
-                    <div className="flex min-w-0 flex-col items-start">
-                        <Label
-                            htmlFor="restaurant-menu"
-                            className="cursor-pointer text-left"
-                        >
-                            {t("sidebar.restaurantParameter.title")}
-                        </Label>
-                        <span className="text-xs text-muted-foreground text-left">
-                            {restaurantMenuEnabled
-                                ? t("sidebar.restaurantParameter.enabled")
-                                : t("sidebar.restaurantParameter.disabled")}
-                        </span>
-                    </div>
-                </div>
-                <div className="flex shrink-0 justify-end">
-                    <Switch
-                        id="restaurant-menu"
-                        checked={restaurantMenuEnabled}
-                        onCheckedChange={handleRestaurantMenuToggle}
-                        aria-label={t("sidebar.restaurantParameter.title")}
-                    />
-                </div>
-            </motion.div>
-
-            <motion.div
-                variants={fadeIn}
-                className="flex items-center justify-between gap-4"
-            >
-                <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
-                    <Hourglass className="h-5 w-5 shrink-0" />
-                    <div className="flex min-w-0 flex-col items-start">
-                        <Label
-                            htmlFor="extra-time"
-                            className="cursor-pointer text-left"
-                        >
-                            {t("sidebar.extraTimeParameter.title")}
-                        </Label>
-                        <span className="text-xs text-muted-foreground text-left">
-                            {extraTimeEnabled
-                                ? t("sidebar.extraTimeParameter.enabled")
-                                : t("sidebar.extraTimeParameter.disabled")}
-                        </span>
-                    </div>
-                </div>
-                <div className="flex shrink-0 justify-end">
-                    <Switch
-                        id="extra-time"
-                        checked={extraTimeEnabled}
-                        onCheckedChange={handleExtraTimeToggle}
-                        aria-label={t("sidebar.extraTimeParameter.title")}
-                    />
-                </div>
-            </motion.div>
-
-            <motion.div variants={fadeIn}>
-                <Separator />
-            </motion.div>
+            <SeparatorRow />
 
             <SectionTitle title={t("settingsPage.sections.appearance")} />
-            {appearanceSelectors.map(renderSelector)}
+            {appearanceSelectors.map((setting) => (
+                <SelectSetting key={setting.title} setting={setting} />
+            ))}
 
-            <motion.div variants={fadeIn}>
-                <Separator />
-            </motion.div>
+            <SeparatorRow />
 
             <motion.div
                 variants={fadeIn}
@@ -428,24 +389,13 @@ export function SettingsPage() {
                 </p>
             </motion.div>
 
-            <motion.div
-                variants={fadeIn}
-                className="flex items-center justify-between gap-4"
-            >
-                <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
-                    <Dices className="h-5 w-5 shrink-0" />
-                    <div className="flex min-w-0 flex-col items-start">
-                        <Label className="cursor-default text-left">
-                            {t("settingsPage.gradeRevealMode.title")}
-                        </Label>
-                        <span className="text-xs text-muted-foreground text-left">
-                            {t(
-                                `settingsPage.gradeRevealMode.${gradeRevealMode}`
-                            )}
-                        </span>
-                    </div>
-                </div>
-                <div className="flex shrink-0 justify-end">
+            <SettingRow
+                icon={Dices}
+                label={t("settingsPage.gradeRevealMode.title")}
+                description={t(
+                    `settingsPage.gradeRevealMode.${gradeRevealMode}`
+                )}
+                control={
                     <Select
                         value={gradeRevealMode}
                         onValueChange={handleGradeRevealModeChange}
@@ -469,36 +419,19 @@ export function SettingsPage() {
                             ))}
                         </SelectContent>
                     </Select>
-                </div>
-            </motion.div>
+                }
+            />
 
-            <motion.div
-                variants={fadeIn}
-                className="flex items-center justify-between gap-4"
-            >
-                <div className="flex min-w-0 flex-1 items-center gap-3 [&_svg]:size-7!">
-                    <Radar className="h-5 w-5 shrink-0" />
-                    <div className="flex min-w-0 flex-col items-start">
-                        <Label
-                            htmlFor="palantir-theme"
-                            className="cursor-pointer text-left"
-                        >
-                            {t("settingsPage.palantirTheme.title")}
-                        </Label>
-                        <span className="text-xs text-muted-foreground text-left">
-                            {t("settingsPage.palantirTheme.description")}
-                        </span>
-                    </div>
-                </div>
-                <div className="flex shrink-0 justify-end">
-                    <Switch
-                        id="palantir-theme"
-                        checked={palantirTheme}
-                        onCheckedChange={setPalantirTheme}
-                        aria-label={t("settingsPage.palantirTheme.title")}
-                    />
-                </div>
-            </motion.div>
+            <SwitchSetting
+                setting={{
+                    icon: Radar,
+                    id: "palantir-theme",
+                    title: t("settingsPage.palantirTheme.title"),
+                    description: t("settingsPage.palantirTheme.description"),
+                    checked: palantirTheme,
+                    onCheckedChange: setPalantirTheme,
+                }}
+            />
         </motion.div>
     );
 }

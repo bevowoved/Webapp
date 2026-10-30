@@ -1,32 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { fetchJuniaStatus, JuniaStatus } from "@/lib/api/junia-status";
+import { getDynamicStaleTime } from "@/lib/api/helper";
 
-const FRESH_MS = 1000 * 60 * 5; // 5 min
+const FRESH_MS = 1000 * 60 * 5;
+const MINUTE_MS = 1000 * 60;
 
-/**
- * Aurion / Wi-Fi status from BadJunia, shared by every consumer through the
- * same query key. Persisted queries are restored from localStorage, so a status
- * that wasn't refreshed recently is ignored: an old outage never flashes on
- * launch.
- */
-export function useJuniaStatus(): JuniaStatus | null {
-    const { data, dataUpdatedAt } = useQuery({
+export const juniaStatusQueryOptions = () =>
+    queryOptions({
         queryKey: ["juniaStatus"],
         queryFn: fetchJuniaStatus,
-        staleTime: 1000 * 60, // 1 min
-        gcTime: 1000 * 60 * 5, // 5 min
+        staleTime: () => getDynamicStaleTime("/badjunia/status", MINUTE_MS),
+        gcTime: FRESH_MS,
         retry: false,
         refetchOnMount: true,
-        refetchOnWindowFocus: true,
-        refetchInterval: 1000 * 60, // 1 min
+        refetchOnWindowFocus: false,
+        refetchInterval: MINUTE_MS,
+        refetchIntervalInBackground: false,
     });
 
-    return data && Date.now() - dataUpdatedAt < FRESH_MS ? data : null;
+export function useJuniaStatus(): JuniaStatus | null {
+    const { data, isStale } = useQuery(juniaStatusQueryOptions());
+    return data && !isStale ? data : null;
 }
 
 const BLINK_EVENT = "mauria:aurion-blink";
 
-/** Ask the top bar to play the "Aurion is down" blink (e.g. on pull-to-refresh). */
 export function requestAurionBlink() {
     window.dispatchEvent(new Event(BLINK_EVENT));
 }

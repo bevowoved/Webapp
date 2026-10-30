@@ -1,4 +1,3 @@
-/* eslint-disable i18next/no-literal-string -- dev-only debug page, never shipped to users */
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { PlanningCalendar } from "@/components/planning-calendar";
@@ -12,10 +11,6 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 
-// Dev-only: rejoue les fixtures récoltées par API-v2/scripts/aurion-fixtures.ts
-// (une par filière/promo) dans le vrai calendrier, pour valider le rendu des
-// cartes sur d'autres classes que la sienne. Nécessite l'API-v2 lancée en
-// local (`npm run dev`) — la route /dev/planning-fixtures n'existe qu'en dev.
 const DEV_API_URL =
     import.meta.env.VITE_DEV_API_URL ?? "http://localhost:8080";
 
@@ -62,7 +57,7 @@ export function PlanningPreviewPage() {
                 variants={fadeIn}
                 className="text-3xl font-bold text-mauria-purple dark:text-white mt-4 mb-6"
             >
-                Planning preview (dev only)
+                {"Planning preview (dev only)"}
             </motion.h2>
 
             {error && <p className="text-red-500 mb-4">{error}</p>}

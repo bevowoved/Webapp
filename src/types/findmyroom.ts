@@ -1,11 +1,9 @@
 export type Building = {
-    /** Building code as used by findmyroom, e.g. "IC2", "PR_39BV". */
     code: string;
     nom: string;
     dispo: number;
     total: number;
     pourcentage: number;
-    /** Rooms still reported free past their closing time (set by API-v2). */
     fermees?: number;
 };
 

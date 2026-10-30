@@ -10,10 +10,9 @@ import {
     Loader2,
     Search,
     Users,
+    type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type FullCalendar from "@fullcalendar/react";
-import type { EventContentArg } from "@fullcalendar/core";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +20,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CarouselItem, FilterCarousel } from "@/components/filter-carousel";
-import { PlanningCalendar } from "@/components/planning-calendar";
+import {
+    PlanningCalendar,
+    type PlanningCalendarHandle,
+    type PlanningEventArg,
+} from "@/components/planning-calendar";
 import { DrawerPlanningContent } from "@/components/drawer-planning-content";
 import { AurionDownState } from "@/components/aurion-down-state";
 import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
@@ -60,24 +63,48 @@ const kindIcons = {
     teacher: GraduationCap,
 } as const;
 
+type ResultRowProps = {
+    icon: LucideIcon;
+    label: string;
+    detail?: string;
+    badge: React.ReactNode;
+    onSelect: () => void;
+};
+
+function ResultRow({ icon: Icon, label, detail, badge, onSelect }: ResultRowProps) {
+    return (
+        <button type="button" onClick={onSelect} className="w-full text-left">
+            <Card className="transition-colors hover:bg-mauria-purple/5 dark:hover:bg-white/5">
+                <CardContent className="flex items-center gap-3 py-3">
+                    <Icon className="h-5 w-5 shrink-0 text-mauria-purple dark:text-white" />
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{label}</p>
+                        {detail && (
+                            <p className="truncate text-xs text-muted-foreground">
+                                {detail}
+                            </p>
+                        )}
+                    </div>
+                    {badge}
+                </CardContent>
+            </Card>
+        </button>
+    );
+}
+
 export function PalantirPage() {
     const { t } = useTranslation();
     const aurionDown = useJuniaStatus()?.aurionDown ?? false;
-    // Opt-in troll skin; off unless turned on in the experimental settings.
     const classified = usePalantirTheme();
 
     const [rawQuery, setRawQuery] = useState("");
     const [query, setQuery] = useState("");
     const [kind, setKind] = useState<PalantirEntityKind | null>(null);
     const [selected, setSelected] = useState<PalantirEntity | null>(null);
-    // Clicking an event opens the same read-only detail drawer as the
-    // personal planning — pure client-side parsing of the title, no request.
     const [eventInfo, setEventInfo] = useState<PreparedLesson | null>(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const calendarRef = useRef<FullCalendar>(null);
+    const calendarRef = useRef<PlanningCalendarHandle>(null);
 
-    // The lesson happening now glows in the calendar; the clock is polled so
-    // the glow follows it.
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
         if (!classified) return;
@@ -86,7 +113,7 @@ export function PalantirPage() {
     }, [classified]);
 
     const eventClassNames = useCallback(
-        (arg: EventContentArg) => {
+        (arg: PlanningEventArg) => {
             const start = arg.event.start?.getTime() ?? 0;
             const end = arg.event.end?.getTime() ?? 0;
             return start <= now && now < end ? ["pv-event-now"] : [];
@@ -94,8 +121,6 @@ export function PalantirPage() {
         [now]
     );
 
-    // Typing shouldn't fire a request per keystroke: the index is in the API's
-    // memory, but the round trip still isn't free.
     useEffect(() => {
         const timeout = window.setTimeout(
             () => setQuery(rawQuery.trim()),
@@ -111,10 +136,6 @@ export function PalantirPage() {
         staleTime: 1000 * 60 * 5,
     });
 
-    // Teachers and students ride along the normal search. The API answers
-    // 404 for anyone but admins, so this stays null for them — no extra
-    // UI, no hint the feature exists. Only fired on the unfiltered list:
-    // the room/group filters mean people by definition.
     const { data: people } = useQuery({
         queryKey: ["palantir", "people", query],
         queryFn: () => searchPalantirPeople(query),
@@ -122,8 +143,6 @@ export function PalantirPage() {
         staleTime: 1000 * 60 * 5,
     });
 
-    // The index is rebuilt once a week by whoever searches first. While that
-    // runs, poll so the progress bar advances; stop as soon as it is ready.
     const { data: polledStatus } = useQuery({
         queryKey: ["palantir", "status"],
         queryFn: fetchPalantirStatus,
@@ -134,8 +153,6 @@ export function PalantirPage() {
 
     const status = polledStatus ?? search?.status ?? null;
     const building = status?.state === "building";
-    // A stale index keeps being served while the new one is built, so only a
-    // completely empty one is worth blocking the results list for.
     const indexEmpty = status?.state === "empty";
 
     const { data: lessons = [], isFetching: loadingPlanning } = useQuery<
@@ -152,12 +169,6 @@ export function PalantirPage() {
         staleTime: 1000 * 60 * 5,
     });
 
-    // Khôlles are not in Aurion, so they are not in the Palantir index
-    // either: the public colles sheet is folded in client-side, the same
-    // way the personal planning does it. A room gets every khôlle it
-    // hosts, a class every khôlle of its groups, a student their own
-    // (resolved server-side off the private roster), a teacher every
-    // khôlle they give.
     const colles = useMemo(() => {
         if (!selected) return [];
         switch (selected.kind) {
@@ -392,135 +403,78 @@ export function PalantirPage() {
                             variants={staggerGroup}
                             className="space-y-2"
                         >
-                            {results.map((entity) => {
-                                // Unknown kinds can still sit in the
-                                // persisted React Query cache: fall back to
-                                // the search glyph rather than crash.
-                                const Icon = kindIcons[entity.kind] ?? Search;
-                                return (
-                                    <motion.li
-                                        key={`${entity.kind}-${entity.id}`}
-                                        variants={fadeIn}
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelected(entity)}
-                                            className="w-full text-left"
-                                        >
-                                            <Card className="transition-colors hover:bg-mauria-purple/5 dark:hover:bg-white/5">
-                                                <CardContent className="flex items-center gap-3 py-3">
-                                                    <Icon className="h-5 w-5 shrink-0 text-mauria-purple dark:text-white" />
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="truncate text-sm font-medium">
-                                                            {entity.label}
-                                                        </p>
-                                                        {entity.detail && (
-                                                            <p className="truncate text-xs text-muted-foreground">
-                                                                {entity.detail}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                    {entity.type ===
-                                                    "Promotion" ? (
-                                                        <Badge variant="secondary">
-                                                            {t(
-                                                                "palantirPage.promotion"
-                                                            )}
-                                                        </Badge>
-                                                    ) : entity.count > 0 ? (
-                                                        <Badge variant="secondary">
-                                                            {t(
-                                                                "palantirPage.lessonCount",
-                                                                {
-                                                                    count: entity.count,
-                                                                }
-                                                            )}
-                                                        </Badge>
-                                                    ) : null}
-                                                </CardContent>
-                                            </Card>
-                                        </button>
-                                    </motion.li>
-                                );
-                            })}
-                            {students.map((student) => (
-                                <motion.li
-                                    key={`student-${student.groupId}-${student.lastName}`}
-                                    variants={fadeIn}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setSelected({
-                                                kind: "group",
-                                                id: student.groupId,
-                                                label: student.className,
-                                                detail: "",
-                                                type: "Promotion",
-                                                count: 0,
-                                                collesGroup: student.collesGroup,
-                                            })
-                                        }
-                                        className="w-full text-left"
-                                    >
-                                        <Card className="transition-colors hover:bg-mauria-purple/5 dark:hover:bg-white/5">
-                                            <CardContent className="flex items-center gap-3 py-3">
-                                                <Users className="h-5 w-5 shrink-0 text-mauria-purple dark:text-white" />
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="truncate text-sm font-medium">
-                                                        {student.firstName}{" "}
-                                                        {student.lastName}
-                                                    </p>
-                                                    <p className="truncate text-xs text-muted-foreground">
-                                                        {student.className}
-                                                    </p>
-                                                </div>
-                                                <Badge variant="secondary">
-                                                    {t(
-                                                        "palantirPage.student"
-                                                    )}
-                                                </Badge>
-                                            </CardContent>
-                                        </Card>
-                                    </button>
-                                </motion.li>
-                            ))}
-                            {teachers.map((teacher) => (
-                                <motion.li
-                                    key={`teacher-${teacher.name}`}
-                                    variants={fadeIn}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setSelected({
-                                                kind: "teacher",
-                                                id: teacher.name,
-                                                label: teacher.name,
-                                                detail: "",
-                                                type: "",
+                            {[
+                                ...results.map((entity) => ({
+                                    key: `${entity.kind}-${entity.id}`,
+                                    icon: kindIcons[entity.kind] ?? Search,
+                                    label: entity.label,
+                                    detail: entity.detail,
+                                    onSelect: () => setSelected(entity),
+                                    badge:
+                                        entity.type === "Promotion" ? (
+                                            <Badge variant="secondary">
+                                                {t("palantirPage.promotion")}
+                                            </Badge>
+                                        ) : entity.count > 0 ? (
+                                            <Badge variant="secondary">
+                                                {t("palantirPage.lessonCount", {
+                                                    count: entity.count,
+                                                })}
+                                            </Badge>
+                                        ) : null,
+                                })),
+                                ...students.map((student) => ({
+                                    key: `student-${student.groupId}-${student.lastName}`,
+                                    icon: Users,
+                                    label: `${student.firstName} ${student.lastName}`,
+                                    detail: student.className,
+                                    onSelect: () =>
+                                        setSelected({
+                                            kind: "group",
+                                            id: student.groupId,
+                                            label: student.className,
+                                            detail: "",
+                                            type: "Promotion",
+                                            count: 0,
+                                            collesGroup: student.collesGroup,
+                                        }),
+                                    badge: (
+                                        <Badge variant="secondary">
+                                            {t("palantirPage.student")}
+                                        </Badge>
+                                    ),
+                                })),
+                                ...teachers.map((teacher) => ({
+                                    key: `teacher-${teacher.name}`,
+                                    icon: GraduationCap,
+                                    label: teacher.name,
+                                    detail: undefined,
+                                    onSelect: () =>
+                                        setSelected({
+                                            kind: "teacher",
+                                            id: teacher.name,
+                                            label: teacher.name,
+                                            detail: "",
+                                            type: "",
+                                            count: teacher.lessons,
+                                        }),
+                                    badge: (
+                                        <Badge variant="secondary">
+                                            {t("palantirPage.lessonCount", {
                                                 count: teacher.lessons,
-                                            })
-                                        }
-                                        className="w-full text-left"
-                                    >
-                                        <Card className="transition-colors hover:bg-mauria-purple/5 dark:hover:bg-white/5">
-                                            <CardContent className="flex items-center gap-3 py-3">
-                                                <GraduationCap className="h-5 w-5 shrink-0 text-mauria-purple dark:text-white" />
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="truncate text-sm font-medium">
-                                                        {teacher.name}
-                                                    </p>
-                                                </div>
-                                                <Badge variant="secondary">
-                                                    {t(
-                                                        "palantirPage.lessonCount",
-                                                        { count: teacher.lessons }
-                                                    )}
-                                                </Badge>
-                                            </CardContent>
-                                        </Card>
-                                    </button>
+                                            })}
+                                        </Badge>
+                                    ),
+                                })),
+                            ].map((row) => (
+                                <motion.li key={row.key} variants={fadeIn}>
+                                    <ResultRow
+                                        icon={row.icon}
+                                        label={row.label}
+                                        detail={row.detail}
+                                        onSelect={row.onSelect}
+                                        badge={row.badge}
+                                    />
                                 </motion.li>
                             ))}
                         </motion.ul>

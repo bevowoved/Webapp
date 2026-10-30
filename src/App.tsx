@@ -1,4 +1,4 @@
-import { AnimatePresence } from "framer-motion";
+import { lazy, Suspense, useEffect } from "react";
 import {
     BrowserRouter,
     Navigate,
@@ -6,57 +6,193 @@ import {
     Routes,
     useLocation,
 } from "react-router";
-import { Toaster } from "@/components/ui/sonner";
 
-import { ModalContextProvider } from "./contexts/modalContext";
-import { ToastContextProvider } from "./contexts/toastContent";
-import { AbsencesPage } from "./pages/absences/page";
-import { HomePage } from "./pages/home/page";
 import RootLayout from "./pages/layout";
-import { GradesPage } from "./pages/grades/page";
-import { ReactQueryProvider } from "./contexts/reactQueryContext";
+import { ReactQueryProvider } from "./lib/query-client";
 import { getSession } from "./lib/api/aurion";
 import { useAurionWarm } from "./lib/hooks/use-aurion-warm";
-import { useWidgetLanguageSync } from "./lib/native/use-widget-language-sync";
+import { useWidgetLanguageSync } from "./lib/native/widget";
 import { ThemeProvider } from "./components/theme-provider";
 import { BackgroundProvider } from "./components/background-provider";
-import { AssociationsPage } from "./pages/secondary/associations";
-import { PlanningPage } from "./pages/planning/page";
-import { LoginPage } from "./pages/secondary/login";
-import { AgendaPage } from "./pages/secondary/agenda";
-import { WelcomePage } from "./pages/secondary/welcome";
-import { CampusPage } from "./pages/secondary/campus";
-import { PreparingPage } from "./pages/secondary/preparing";
-import { DocumentsPage } from "./pages/secondary/documents";
-import { VersionsPage } from "./pages/secondary/versions";
-import { PrintPage } from "./pages/secondary/print";
-import { SettingsPage } from "./pages/secondary/settings";
-import { PalantirPage } from "./pages/palantir/page";
-import { PlanningPreviewPage } from "./pages/dev/planning-preview";
-import * as Sentry from "@sentry/react";
 
-if (import.meta.env.PROD) {
-    console.log("Initializing Sentry in production mode...");
-    Sentry.init({
-        dsn: "https://43f1e4d5385f6aac1b8e60ececf90921@o4510087561412608.ingest.us.sentry.io/4510087561740288",
-        // Setting this option to true will send default PII data to Sentry.
-        // For example, automatic IP address collection on events
-        sendDefaultPii: true,
-        integrations: [
-            Sentry.replayIntegration(),
-            Sentry.browserTracingIntegration(),
-        ],
-        replaysSessionSampleRate: 0, // This sets the sample rate at 0%. You may want to change it to 100% while in development and then sample at a lower rate in production.
-        replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
-        tracesSampleRate: 1.0, // Adjust this value in production as needed
+const Toaster = lazy(() =>
+    import("@/components/ui/sonner").then((m) => ({ default: m.Toaster }))
+);
+
+const HomePage = lazy(() =>
+    import("./pages/home/page").then((m) => ({ default: m.HomePage }))
+);
+const PlanningPage = lazy(() =>
+    import("./pages/planning/page").then((m) => ({ default: m.PlanningPage }))
+);
+const GradesPage = lazy(() =>
+    import("./pages/grades/page").then((m) => ({ default: m.GradesPage }))
+);
+const AbsencesPage = lazy(() =>
+    import("./pages/absences/page").then((m) => ({ default: m.AbsencesPage }))
+);
+const AssociationsPage = lazy(() =>
+    import("./pages/secondary/associations").then((m) => ({
+        default: m.AssociationsPage,
+    }))
+);
+const DocumentsPage = lazy(() =>
+    import("./pages/secondary/documents").then((m) => ({
+        default: m.DocumentsPage,
+    }))
+);
+const PrintPage = lazy(() =>
+    import("./pages/secondary/print").then((m) => ({ default: m.PrintPage }))
+);
+const PalantirPage = lazy(() =>
+    import("./pages/palantir/page").then((m) => ({ default: m.PalantirPage }))
+);
+const AgendaPage = lazy(() =>
+    import("./pages/secondary/agenda").then((m) => ({ default: m.AgendaPage }))
+);
+const VersionsPage = lazy(() =>
+    import("./pages/secondary/versions").then((m) => ({
+        default: m.VersionsPage,
+    }))
+);
+const SettingsPage = lazy(() =>
+    import("./pages/secondary/settings").then((m) => ({
+        default: m.SettingsPage,
+    }))
+);
+const LoginPage = lazy(() =>
+    import("./pages/secondary/login").then((m) => ({ default: m.LoginPage }))
+);
+const WelcomePage = lazy(() =>
+    import("./pages/secondary/welcome").then((m) => ({
+        default: m.WelcomePage,
+    }))
+);
+const CampusPage = lazy(() =>
+    import("./pages/secondary/campus").then((m) => ({ default: m.CampusPage }))
+);
+const PreparingPage = lazy(() =>
+    import("./pages/secondary/preparing").then((m) => ({
+        default: m.PreparingPage,
+    }))
+);
+const PlanningPreviewPage = lazy(() =>
+    import("./pages/dev/planning-preview").then((m) => ({
+        default: m.PlanningPreviewPage,
+    }))
+);
+
+const routeLoaders: Record<string, () => Promise<unknown>> = {
+    "/": () => import("./pages/home/page"),
+    "/planning": () => import("./pages/planning/page"),
+    "/grades": () => import("./pages/grades/page"),
+    "/absences": () => import("./pages/absences/page"),
+    "/agenda": () => import("./pages/secondary/agenda"),
+    "/associations": () => import("./pages/secondary/associations"),
+    "/documents": () => import("./pages/secondary/documents"),
+    "/print": () => import("./pages/secondary/print"),
+    "/palantir": () => import("./pages/palantir/page"),
+    "/versions": () => import("./pages/secondary/versions"),
+    "/settings": () => import("./pages/secondary/settings"),
+    "/welcome": () => import("./pages/secondary/welcome"),
+    "/campus": () => import("./pages/secondary/campus"),
+    "/preparing": () => import("./pages/secondary/preparing"),
+    "/login": () => import("./pages/secondary/login"),
+};
+
+const preloaded = new Set<string>();
+
+export function preloadRoute(path: string) {
+    const key = path.split("?")[0].replace(/\/$/, "") || "/";
+    const load = routeLoaders[key];
+    if (!load || preloaded.has(key)) return;
+    preloaded.add(key);
+    void load().catch(() => {
+        preloaded.delete(key);
     });
 }
+
+const CORE_ROUTES = ["/", "/planning", "/grades", "/absences", "/agenda"];
+
+const connection = () =>
+    (
+        navigator as Navigator & {
+            connection?: { saveData?: boolean; effectiveType?: string };
+        }
+    ).connection;
+
+const shouldPrefetch = () => {
+    const c = connection();
+    if (!c) return true;
+    if (c.saveData) return false;
+    return c.effectiveType !== "slow-2g" && c.effectiveType !== "2g";
+};
+
+function preloadCoreRoutes() {
+    if (!shouldPrefetch()) return;
+    for (const path of CORE_ROUTES) preloadRoute(path);
+}
+
+const whenIdle = (cb: () => void) => {
+    if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(cb, { timeout: 2500 });
+    } else {
+        setTimeout(cb, 1200);
+    }
+};
+
+const initSentry = () => {
+    void import("@sentry/react").then((Sentry) => {
+        Sentry.init({
+            dsn: "https://43f1e4d5385f6aac1b8e60ececf90921@o4510087561412608.ingest.us.sentry.io/4510087561740288",
+            dataCollection: {
+                userInfo: false,
+                cookies: false,
+                httpHeaders: false,
+                httpBodies: [],
+                urlQueryParams: false,
+                genAI: { inputs: false, outputs: false },
+                databaseQueryData: false,
+                graphQL: { document: false, variables: false },
+            },
+            integrations: [
+                Sentry.replayIntegration({
+                    maskAllText: true,
+                    blockAllMedia: true,
+                }),
+                Sentry.browserTracingIntegration(),
+            ],
+            replaysSessionSampleRate: 0,
+            replaysOnErrorSampleRate: 1.0,
+            tracesSampleRate: 0.1,
+            beforeSend(event) {
+                if (event.request) {
+                    event.request.data = undefined;
+                    event.request.cookies = undefined;
+                    event.request.query_string = undefined;
+                    event.request.headers = undefined;
+                    if (event.request.url) {
+                        event.request.url = event.request.url.split("?")[0];
+                    }
+                }
+                if (event.user) event.user = { id: event.user.id };
+                return event;
+            },
+            beforeBreadcrumb(breadcrumb) {
+                if (breadcrumb.data) {
+                    delete breadcrumb.data.url;
+                    delete breadcrumb.data.to;
+                    delete breadcrumb.data.from;
+                }
+                return breadcrumb;
+            },
+        });
+    });
+};
 
 const RequireAuth = ({ children }: { children?: React.ReactNode }) => {
     const location = useLocation();
     const connected = !!getSession();
-    // Warms the Aurion session as soon as an authenticated route mounts,
-    // whichever one it is — not gated on any particular page's first fetch.
     useAurionWarm();
 
     if (!connected) {
@@ -69,8 +205,8 @@ function AppRoutes() {
     const location = useLocation();
 
     return (
-        <AnimatePresence mode="wait" initial={false}>
-            <Routes location={location} key={location.pathname}>
+        <Suspense fallback={null}>
+            <Routes location={location}>
                 {import.meta.env.DEV && (
                     <Route
                         path="/dev/planning-preview"
@@ -117,10 +253,7 @@ function AppRoutes() {
                         path="/associations"
                         element={<AssociationsPage />}
                     />
-                    <Route
-                        path="/documents"
-                        element={<DocumentsPage />}
-                    />
+                    <Route path="/documents" element={<DocumentsPage />} />
                     <Route path="/print" element={<PrintPage />} />
                     <Route path="/palantir" element={<PalantirPage />} />
                     <Route path="/agenda" element={<AgendaPage />} />
@@ -128,8 +261,16 @@ function AppRoutes() {
                     <Route path="/settings" element={<SettingsPage />} />
                 </Route>
             </Routes>
-        </AnimatePresence>
+        </Suspense>
     );
+}
+
+function useDeferredBoot() {
+    useEffect(() => {
+        if (!import.meta.env.PROD) return;
+        whenIdle(initSentry);
+        whenIdle(preloadCoreRoutes);
+    }, []);
 }
 
 function App() {
@@ -137,22 +278,20 @@ function App() {
     const routerBaseName =
         baseUrl === "/" ? undefined : baseUrl.replace(/\/$/, "");
 
-    // Les widgets natifs suivent la langue de l'app : no-op hors Android.
     useWidgetLanguageSync();
+    useDeferredBoot();
 
     return (
         <ThemeProvider>
             <BackgroundProvider defaultBackground="particles">
-                <ToastContextProvider>
-                    <ModalContextProvider>
-                        <Toaster richColors position="top-center" />
-                        <BrowserRouter basename={routerBaseName}>
-                            <ReactQueryProvider>
-                                <AppRoutes />
-                            </ReactQueryProvider>
-                        </BrowserRouter>
-                    </ModalContextProvider>
-                </ToastContextProvider>
+                <Suspense fallback={null}>
+                    <Toaster richColors position="top-center" />
+                </Suspense>
+                <BrowserRouter basename={routerBaseName}>
+                    <ReactQueryProvider>
+                        <AppRoutes />
+                    </ReactQueryProvider>
+                </BrowserRouter>
             </BackgroundProvider>
         </ThemeProvider>
     );

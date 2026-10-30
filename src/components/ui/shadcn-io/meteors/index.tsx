@@ -1,10 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 
 function cn(...cls: Array<string | undefined | false>) {
     return cls.filter(Boolean).join(" ");
 }
+
+const seeded = (seed: number) => {
+    let state = seed;
+    return () => {
+        state = (state * 1103515245 + 12345) % 2147483648;
+        return state / 2147483648;
+    };
+};
 
 export interface MeteorsProps {
     number?: number;
@@ -12,7 +20,7 @@ export interface MeteorsProps {
     maxDelay?: number;
     minDuration?: number;
     maxDuration?: number;
-    angle?: number; // degrees. 215 = top-right to bottom-left
+    angle?: number;
     className?: string;
 }
 
@@ -25,30 +33,23 @@ export const Meteors: React.FC<MeteorsProps> = ({
     angle = 215,
     className,
 }) => {
-    const [meteorStyles, setMeteorStyles] = useState<
-        Array<React.CSSProperties>
-    >([]);
-
-    useEffect(() => {
-        const styles = Array.from({ length: number }, () => {
-            const delay = Math.random() * (maxDelay - minDelay) + minDelay;
-            const dur =
-                Math.random() * (maxDuration - minDuration) + minDuration;
-            const leftPx = Math.floor(Math.random() * window.innerWidth);
-            const topPct = Math.random() * 120 - 10; // distribute meteors across and slightly beyond the viewport
+    const meteorStyles = useMemo(() => {
+        const random = seeded(number * 7919 + Math.round(angle));
+        return Array.from({ length: number }, () => {
+            const delay = random() * (maxDelay - minDelay) + minDelay;
+            const dur = random() * (maxDuration - minDuration) + minDuration;
+            const topPct = random() * 120 - 10;
 
             return {
                 "--angle": `${angle}deg`,
                 top: `${topPct}%`,
-                left: `calc(0% + ${leftPx}px)`,
+                left: `calc(0% + ${Math.floor(random() * 100)}vw)`,
                 animationDelay: `${delay}s`,
                 animationDuration: `${dur}s`,
                 animationFillMode: "both",
                 transform: `rotate(${angle}deg)`,
             } as React.CSSProperties;
         });
-
-        setMeteorStyles(styles);
     }, [number, minDelay, maxDelay, minDuration, maxDuration, angle]);
 
     return (

@@ -1,20 +1,6 @@
-import { forwardRef, memo, useEffect, useRef } from "react";
-import FullCalendar from "@fullcalendar/react";
-import { addDays, isSunday } from "date-fns";
-import {
-    DateSelectArg,
-    EventClickArg,
-    EventContentArg,
-    EventSourceInput,
-} from "@fullcalendar/core";
-import interactionPlugin from "@fullcalendar/interaction";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import FrLocale from "@fullcalendar/core/locales/fr";
-import EsLocale from "@fullcalendar/core/locales/es";
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import "@/pages/planning/planning.css";
-
+import { addDays, format, getDateLocale, isSameDay, isSunday, startOfWeek, toTime } from "@/lib/utils/date-time";
 import { Lesson } from "@/types/aurion";
 import {
     abbreviateSubjects,
@@ -25,410 +11,348 @@ import {
     parseFromTitle,
 } from "@/lib/utils/home";
 import { formatExtraTimeLabel } from "@/lib/utils/extra-time";
+import "@/styles/planning-calendar.css";
 
-const Calendar = memo(FullCalendar);
+const SLOT_MIN = 7 * 60;
+const SLOT_MAX = 22 * 60;
+const SLOT_STEP = 30;
+const SLOT_COUNT = (SLOT_MAX - SLOT_MIN) / SLOT_STEP;
+const DRIFT_PX = 10;
+const SELECT_HOLD_MS = 200;
+const DAY_MS = 86_400_000;
+const SLOTS = Array.from({ length: SLOT_COUNT }, (_, i) => SLOT_MIN + i * SLOT_STEP);
 
-// How far a finger may drift during the long press before it reads as a
-// scroll rather than the start of a selection.
-const LONG_PRESS_TOLERANCE_PX = 10;
-const SELECT_LONG_PRESS_MS = 400;
+export type PlanningView = "timeGridWeek" | "timeGridDay";
 
-// Shared by the real planning page and the dev-only fixture preview: same
-// three-line card rendering (parseFromTitle-driven), so a fix to one always
-// shows up in the other.
-export const PlanningCalendar = forwardRef<
-    FullCalendar,
-    {
-        eventSources: EventSourceInput[];
-        onEventClick?: (info: EventClickArg) => void;
-        /** Extra classNames per event, e.g. to theme the lesson happening now. */
-        eventClassNames?: (arg: EventContentArg) => string[];
-        /** Makes empty slots selectable (long press on touch screens). */
-        onSelect?: (info: DateSelectArg) => void;
+export type PlanningCalendarHandle = {
+    prev?: () => void;
+    next?: () => void;
+    today?: () => void;
+    changeView?: (view: PlanningView) => void;
+    updateSize?: () => void;
+    getApi?: () => unknown;
+};
+
+export type PlanningEventArg = {
+    event: {
+        id: string;
+        title: string;
+        start: Date;
+        end: Date;
+        classNames: string[];
+        extendedProps: Record<string, unknown>;
+        toJSON: () => Lesson;
+    };
+    [extra: string]: unknown;
+};
+
+export type PlanningSelectArg = { start: Date; end: Date };
+
+type Props = {
+    lessons?: Lesson[];
+    eventSources?: Lesson[][];
+    onEventClick?: (arg: PlanningEventArg) => void;
+    eventClassNames?: (arg: PlanningEventArg) => string[];
+    onSelect?: (arg: PlanningSelectArg) => void;
+    ref?: React.Ref<PlanningCalendarHandle>;
+};
+
+const minuteOfDay = (d: Date) => d.getHours() * 60 + d.getMinutes();
+
+const asDate = (value: string | Date) => (value instanceof Date ? value : new Date(value));
+
+const toArg = (lesson: Lesson, start: Date, end: Date): PlanningEventArg => ({
+    event: {
+        id: lesson.id,
+        title: lesson.title,
+        start,
+        end,
+        classNames: [lesson.className],
+        extendedProps: lesson as unknown as Record<string, unknown>,
+        toJSON: () => ({ ...lesson }),
+    },
+});
+
+const placeLanes = <T extends { start: Date; end: Date }>(items: T[]) => {
+    const sorted = [...items].sort((a, b) => a.start.getTime() - b.start.getTime() || b.end.getTime() - a.end.getTime());
+    const rows: T[][] = [];
+    const at = new Map<T, { lane: number; span: number }>();
+    for (const item of sorted) {
+        let lane = rows.findIndex((row) => row[row.length - 1].end <= item.start);
+        if (lane === -1) {
+            lane = rows.length;
+            rows.push([]);
+        }
+        rows[lane].push(item);
+        at.set(item, { lane, span: 1 });
     }
->(function PlanningCalendar(
-    { eventSources, onEventClick, eventClassNames, onSelect },
-    ref
-) {
+    for (const item of sorted) {
+        const info = at.get(item)!;
+        for (let l = info.lane + 1; l < rows.length; l++) {
+            if (rows[l].some((o) => o.start < item.end && o.end > item.start)) break;
+            info.span++;
+        }
+    }
+    const total = Math.max(1, rows.length);
+    return sorted.map((item) => ({ ...item, ...at.get(item)!, total }));
+};
+
+const extraZones = (lesson: Lesson, start: Date, end: Date) => {
+    const total = end.getTime() - start.getTime();
+    const orig = lesson as unknown as { origStart?: string; origEnd?: string };
+    if (total <= 0) return null;
+    const clamp = (ms: number) => Math.max(0, Math.min(total, ms));
+    const lead = orig.origStart ? clamp(new Date(orig.origStart).getTime() - start.getTime()) : 0;
+    const trail = orig.origEnd ? clamp(end.getTime() - new Date(orig.origEnd).getTime()) : 0;
+    if ((lead <= 0 && trail <= 0) || total <= lead + trail) return null;
+    const pct = (ms: number) => `${(ms / total) * 100}%`;
+    return { lead, trail, leadPct: pct(lead), trailTop: pct(total - trail), label: formatExtraTimeLabel(lead + trail), leadWins: lead > trail };
+};
+
+const rowOf = (m: number, edge: "start" | "end"): number => {
+    const o = (Math.min(SLOT_MAX, Math.max(SLOT_MIN, m)) - SLOT_MIN) / SLOT_STEP;
+    const line = (edge === "start" ? Math.floor(o) : Math.ceil(o)) + 1;
+    return edge === "start" ? Math.min(SLOT_COUNT, Math.max(1, line)) : Math.min(SLOT_COUNT + 1, Math.max(1, line));
+};
+
+const describe = (lesson: Lesson) => {
+    const { courseTitle, location, type, teacher } = parseFromTitle(lesson);
+    const colle = lesson.className === "est-colle";
+    const course = formatLessonCourse(courseTitle);
+    const stripped = course.replace(/khôlle\s*(?:de\s+)?/gi, "").trim();
+    return [
+        lesson.className === "est-perso",
+        formatLessonLocation(location),
+        (colle ? stripped || course : course) || formatLessonType(type),
+        colle ? formatLessonType(type) : "",
+        formatLessonTeacher(teacher),
+    ] as const;
+};
+
+export const PlanningCalendar = memo(function PlanningCalendar({ lessons, eventSources, onEventClick, eventClassNames, onSelect, ref }: Props) {
     const { t, i18n } = useTranslation();
-    const wrapperRef = useRef<HTMLDivElement>(null);
-    const ghostRef = useRef<HTMLDivElement>(null);
-    const selectable = Boolean(onSelect);
+    const locale = getDateLocale(i18n.language);
+    const all = useMemo(() => lessons ?? eventSources?.flat() ?? [], [lessons, eventSources]);
+    const [view, setView] = useState<PlanningView>("timeGridWeek");
+    const [anchor, setAnchor] = useState(() => (isSunday(new Date()) ? addDays(new Date(), 1) : new Date()));
+    const [now, setNow] = useState(() => new Date());
+    const [ghost, setGhost] = useState<{ day: number; slot: number } | null>(null);
+    const gridRef = useRef<HTMLDivElement>(null);
+    const pressRef = useRef<{ x: number; y: number; day: number; slot: number } | null>(null);
 
-    // Selecting a time range drags the pointer down the grid, which the
-    // page's pull-to-refresh (listening on an ancestor) would also read as a
-    // pull. Mouse: a press on the grid is always a selection, so the pull
-    // never starts there. Touch: a press only becomes a selection after the
-    // long press, so the pull is only cut off once the selection shows up.
+    const step = useCallback((dir: number) => setAnchor((a) => addDays(a, dir * (view === "timeGridWeek" ? 7 : 1))), [view]);
+    const goToday = useCallback(() => setAnchor(new Date()), []);
+
+    useImperativeHandle(ref, () => ({ prev: () => step(-1), next: () => step(1), today: goToday, changeView: setView, updateSize: () => undefined }), [step, goToday]);
+
     useEffect(() => {
-        const el = wrapperRef.current;
-        if (!selectable || !el) return;
+        const id = window.setInterval(() => setNow(new Date()), 60_000);
+        return () => window.clearInterval(id);
+    }, []);
 
-        const onMouseDown = (e: MouseEvent) => {
-            if ((e.target as Element).closest(".fc-view-harness")) {
-                e.stopPropagation();
+    const days = useMemo(() => {
+        const base = view === "timeGridWeek" ? startOfWeek(anchor, { weekStartsOn: 1 }) : anchor;
+        return Array.from({ length: view === "timeGridWeek" ? 5 : 1 }, (_, i) => addDays(base, i));
+    }, [anchor, view]);
+
+    const byDay = useMemo(
+        () =>
+            days.map((day) => {
+                const dayEnd = new Date(day.getTime() + DAY_MS);
+                return placeLanes(
+                    all
+                        .map((lesson) => ({ lesson, start: asDate(lesson.start), end: asDate(lesson.end) }))
+                        .filter((e) => e.start < dayEnd && e.end > day)
+                );
+            }),
+        [days, all]
+    );
+
+    const slotAt = useCallback((x: number, y: number) => {
+        const grid = gridRef.current;
+        if (!grid) return null;
+        const col = [...grid.querySelectorAll<HTMLElement>("[data-day]")].find((node) => {
+            const r = node.getBoundingClientRect();
+            return x >= r.left && x < r.right;
+        });
+        if (!col) return null;
+        const r = col.getBoundingClientRect();
+        const ratio = (y - r.top) / r.height;
+        return ratio < 0 || ratio > 1 ? null : { day: Number(col.dataset.day), slot: Math.min(SLOT_COUNT - 1, Math.floor(ratio * SLOT_COUNT)) };
+    }, []);
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid || !onSelect) return;
+        let holdTimer: number | null = null;
+        let ready = false;
+        const clear = () => {
+            if (holdTimer !== null) {
+                window.clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+            ready = false;
+            pressRef.current = null;
+            setGhost(null);
+        };
+        const down = (e: Event) => {
+            const p = e as PointerEvent;
+            if ((p.target as Element).closest("[data-event]")) return;
+            const hit = slotAt(p.clientX, p.clientY);
+            if (!hit) return;
+            pressRef.current = { x: p.clientX, y: p.clientY, ...hit };
+            if (p.pointerType === "touch") {
+                ready = false;
+                holdTimer = window.setTimeout(() => {
+                    ready = true;
+                    holdTimer = null;
+                    setGhost(hit);
+                }, SELECT_HOLD_MS);
+            } else {
+                ready = true;
+                setGhost(hit);
             }
         };
-        // FullCalendar starts the selection once the long press delay ends,
-        // even if the finger moved meanwhile: a slow scroll over empty slots
-        // would turn into a selection. Any move past a few pixels before the
-        // selection shows up gives up on the long press instead.
-        let pending: { target: EventTarget; x: number; y: number } | null =
-            null;
-
-        // While the finger holds still, a faint preview of the slot fills in
-        // over the long press delay, hinting that holding on creates an
-        // event. FullCalendar's own mirror takes over once the delay ends.
-        let ghostTimer: ReturnType<typeof setTimeout> | undefined;
-        const hideGhost = () => {
-            clearTimeout(ghostTimer);
-            ghostRef.current?.classList.remove("is-pressing");
+        const move = (e: Event) => {
+            const p = pressRef.current;
+            const ev = e as PointerEvent;
+            if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) > DRIFT_PX) clear();
         };
-        const showGhost = (x: number, y: number) => {
-            const ghost = ghostRef.current;
-            const contains = (node: Element, onX: boolean) => {
-                const r = node.getBoundingClientRect();
-                return onX
-                    ? x >= r.left && x < r.right
-                    : y >= r.top && y < r.bottom;
-            };
-            const col = [
-                ...el.querySelectorAll(".fc-timegrid-col[data-date]"),
-            ].find((node) => contains(node, true));
-            const slot = [
-                ...el.querySelectorAll(".fc-timegrid-slot-lane[data-time]"),
-            ].find((node) => contains(node, false));
-            if (!ghost || !col || !slot) return;
-
-            const origin = el.getBoundingClientRect();
-            const colRect = col.getBoundingClientRect();
-            const slotRect = slot.getBoundingClientRect();
-            Object.assign(ghost.style, {
-                left: `${colRect.left - origin.left}px`,
-                top: `${slotRect.top - origin.top}px`,
-                width: `${colRect.width}px`,
-                height: `${slotRect.height}px`,
-                transitionDuration: `${SELECT_LONG_PRESS_MS}ms`,
-            });
-            ghost.classList.add("is-pressing");
-            // The mirror renders right as the delay ends.
-            ghostTimer = setTimeout(
-                () => requestAnimationFrame(hideGhost),
-                SELECT_LONG_PRESS_MS
-            );
-        };
-
-        const onTouchStart = (e: TouchEvent) => {
-            const touch = e.touches[0];
-            const target = e.target as Element;
-            hideGhost();
-            pending =
-                touch &&
-                e.touches.length === 1 &&
-                target.closest(".fc-view-harness") &&
-                !target.closest(".fc-event")
-                    ? { target, x: touch.clientX, y: touch.clientY }
-                    : null;
-            if (pending && target.closest(".fc-timegrid-body")) {
-                showGhost(pending.x, pending.y);
+        const up = () => {
+            const p = pressRef.current;
+            if (p && ready) {
+                const start = new Date(days[p.day].getTime() + (SLOT_MIN + p.slot * SLOT_STEP) * 60_000);
+                onSelect({ start, end: new Date(start.getTime() + 60 * 60_000) });
             }
+            clear();
         };
-        const onTouchEnd = () => {
-            pending = null;
-            hideGhost();
-        };
-        const onTouchMove = (e: TouchEvent) => {
-            const isSelecting = el.querySelector(
-                ".fc-event-mirror, .fc-highlight"
-            );
-            if (!isSelecting) {
-                const touch = e.touches[0];
-                if (
-                    pending &&
-                    touch &&
-                    Math.hypot(
-                        touch.clientX - pending.x,
-                        touch.clientY - pending.y
-                    ) > LONG_PRESS_TOLERANCE_PX
-                ) {
-                    // FullCalendar listens for the cancel on the touched
-                    // element itself and drops its pending long press.
-                    pending.target.dispatchEvent(new Event("touchcancel"));
-                    pending = null;
-                    hideGhost();
-                }
-                return;
-            }
-            pending = null;
-            e.stopPropagation();
-            // FullCalendar blocks page scrolling while selecting from a
-            // window listener, which no longer hears the event.
-            if (e.cancelable) e.preventDefault();
-        };
-
-        el.addEventListener("mousedown", onMouseDown);
-        el.addEventListener("touchstart", onTouchStart, { passive: true });
-        el.addEventListener("touchmove", onTouchMove, { passive: false });
-        el.addEventListener("touchend", onTouchEnd);
-        el.addEventListener("touchcancel", onTouchEnd);
+        const handlers: [string, (e: Event) => void][] = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", clear]];
+        for (const [type, fn] of handlers) grid.addEventListener(type, fn);
         return () => {
-            el.removeEventListener("mousedown", onMouseDown);
-            el.removeEventListener("touchstart", onTouchStart);
-            el.removeEventListener("touchmove", onTouchMove);
-            el.removeEventListener("touchend", onTouchEnd);
-            el.removeEventListener("touchcancel", onTouchEnd);
-            hideGhost();
+            for (const [type, fn] of handlers) grid.removeEventListener(type, fn);
+            clear();
         };
-    }, [selectable]);
+    }, [days, onSelect, slotAt]);
+
+    const nowDay = days.findIndex((d) => isSameDay(d, now));
+    const nowRow = Math.floor((minuteOfDay(now) - SLOT_MIN) / SLOT_STEP) + 1;
 
     return (
-        <div ref={wrapperRef} className="relative">
-            <div ref={ghostRef} className="planning-press-ghost" />
-            <Calendar
-                datesSet={() => {
-                    if (ref && typeof ref !== "function") {
-                        ref.current?.getApi().updateSize();
-                    }
-                }}
-                ref={ref}
-                locale={
-                    i18n.language === "fr"
-                        ? FrLocale
-                        : i18n.language === "es"
-                          ? EsLocale
-                          : undefined
-                }
-                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                initialView="timeGridWeek"
-                // Sunday is hidden from the grid and its week is already
-                // over: open on the week that's coming instead.
-                initialDate={
-                    isSunday(new Date()) ? addDays(new Date(), 1) : undefined
-                }
-                headerToolbar={{
-                    left: "today",
-                    center: "timeGridWeek,timeGridDay",
-                    right: "prev,next",
-                }}
-                buttonText={{
-                    today: t("schedulePage.buttons.today"),
-                    timeGridWeek: t("schedulePage.buttons.week"),
-                    timeGridDay: t("schedulePage.buttons.day"),
-                }}
-                slotMinTime="07:00:00"
-                slotMaxTime="22:00:00"
-                slotEventOverlap={false}
-                titleFormat={{ month: "short", day: "numeric" }}
-                allDaySlot={false}
-                firstDay={1}
-                hiddenDays={[0]}
-                eventSources={eventSources}
-                eventClassNames={eventClassNames}
-                eventColor="var(--planning-event-default-solid)"
-                eventContent={(arg) => {
-                    // Same reading as the drawer and the home cards:
-                    // Aurion's fields shift down whenever a lesson
-                    // carries a multi-line note, so they can't be read
-                    // by position from the top of the title.
-                    const { courseTitle, location, type, teacher } =
-                        parseFromTitle({
-                            title: arg.event.title,
-                            className: arg.event.classNames[0] ?? "",
-                        } as Lesson);
+        <div className="pcal">
+            <div className="pcal-toolbar">
+                <button type="button" className="pcal-btn" onClick={goToday}>
+                    {t("schedulePage.buttons.today")}
+                </button>
+                <div className="pcal-views">
+                    {(["timeGridWeek", "timeGridDay"] as const).map((v) => (
+                        <button key={v} type="button" className={`pcal-btn${view === v ? " is-active" : ""}`} onClick={() => setView(v)}>
+                            {t(v === "timeGridWeek" ? "schedulePage.buttons.week" : "schedulePage.buttons.day")}
+                        </button>
+                    ))}
+                </div>
+                <div className="pcal-nav">
+                    <button type="button" className="pcal-btn" aria-label="previous" onClick={() => step(-1)}>{"\u2039"}</button>
+                    <button type="button" className="pcal-btn" aria-label="next" onClick={() => step(1)}>{"\u203A"}</button>
+                </div>
+            </div>
 
-                    // An exam stretched by "tiers temps" carries its
-                    // nominal bounds (extendedProps.origStart / origEnd,
-                    // set by applyExtraTime). Everything outside them is
-                    // time the student was granted on top — Aurion's own
-                    // "Horaire TT" shifts the start earlier too — hatched
-                    // diagonally, the added time labeled in the larger
-                    // zone.
-                    const { origStart, origEnd } = arg.event.extendedProps as {
-                        origStart?: string;
-                        origEnd?: string;
-                    };
-                    type ExtraZone = {
-                        before: boolean;
-                        top: string;
-                        height: string | null;
-                        label: string | null;
-                    };
-                    const extraZones: ExtraZone[] = (() => {
-                        if (!arg.event.start || !arg.event.end) return [];
+            <div className="pcal-title">
+                {format(days[0], view === "timeGridWeek" ? "d MMM" : "EEEE d MMM", { locale })}
+            </div>
 
-                        const startMs = arg.event.start.getTime();
-                        const endMs = arg.event.end.getTime();
-                        const total = endMs - startMs;
-                        if (total <= 0) return [];
+            <div className="pcal-head">
+                <div className="pcal-gutter" />
+                {days.map((day, i) => (
+                    <div key={day.getTime()} className={`pcal-dayhead${i === nowDay ? " is-today" : ""}`}>
+                        <span className="pcal-dayname">{format(day, "EEE", { locale })}</span>
+                        <span className="pcal-daynum">{day.getDate()}</span>
+                    </div>
+                ))}
+            </div>
 
-                        const clamp = (ms: number) =>
-                            Math.min(Math.max(ms, 0), total);
-                        const lead = clamp(
-                            origStart
-                                ? new Date(origStart).getTime() - startMs
-                                : 0
-                        );
-                        const trail = clamp(
-                            origEnd
-                                ? endMs - new Date(origEnd).getTime()
-                                : 0
-                        );
-                        if ((lead <= 0 && trail <= 0) || total <= lead + trail)
-                            return [];
-
-                        const label = formatExtraTimeLabel(lead + trail);
-                        const labelBefore = lead > trail;
-                        const pct = (ms: number) => `${(ms / total) * 100}%`;
-
-                        const zones: ExtraZone[] = [];
-                        if (lead > 0)
-                            zones.push({
-                                before: true,
-                                top: "0%",
-                                height: pct(lead),
-                                label: labelBefore ? label : null,
-                            });
-                        if (trail > 0)
-                            zones.push({
-                                before: false,
-                                top: pct(total - trail),
-                                height: null,
-                                label: labelBefore ? null : label,
-                            });
-                        return zones;
-                    })();
-
-                    // Aurion rooms read "A812 - Salle … - Campus …";
-                    // only the room itself fits in a cell, the drawer
-                    // still shows the full label.
-                    const place = formatLessonLocation(location);
-                    const course = formatLessonCourse(courseTitle);
-
-                    const userEvent = arg.event.extendedProps as {
-                        location?: string;
-                        notes?: string;
-                    };
-                    const isColle = arg.event.classNames.includes("est-colle");
-                    const lessonType = formatLessonType(type);
-                    const lessonTeacher = formatLessonTeacher(teacher);
-
-                    // Colles: the course line reads "Khôlle {subject}". Strip
-                    // the "Khôlle" type label so only the subject stays in bold;
-                    // "Khôlle" then shows as the type (not bold) before the
-                    // teacher, like Aurion lesson types.
-                    const colleSubject = isColle
-                        ? course.replace(/khôlle\s*(?:de\s+)?/gi, "").trim() ||
-                          course
-                        : course;
-                    // Phone cells only fit the abbreviated subject.
-                    const shortCourse = abbreviateSubjects(colleSubject);
-
-                    // Some lessons have no course label at all (a
-                    // workshop, a meeting): their type becomes the
-                    // title rather than leaving the line blank.
-                    const heading = colleSubject || lessonType;
-                    const shortHeading = shortCourse || lessonType;
-                    const detail = colleSubject ? lessonType : "";
-
-                    return (
-                        <div className="fc-event-main-frame relative">
-                            {extraZones.map((zone) => (
-                                <div
-                                    key={zone.top}
-                                    className={`planning-extra-time-zone ${
-                                        zone.before
-                                            ? "planning-extra-time-before"
-                                            : "planning-extra-time-after"
-                                    }`}
-                                    style={
-                                        zone.height
-                                            ? {
-                                                  top: zone.top,
-                                                  height: zone.height,
-                                              }
-                                            : { top: zone.top }
-                                    }
-                                >
-                                    {zone.label && (
-                                        <span className="planning-extra-time-label">
-                                            {zone.label}
-                                        </span>
-                                    )}
-                                </div>
-                            ))}
-                            <div className="fc-event-title-container">
-                                <div className="fc-event-title fc-sticky">
-                                    {arg.event.classNames.includes(
-                                        "est-perso"
-                                    ) ? (
-                                        // Laid out like a lesson: the
-                                        // place on top, the notes where
-                                        // the teacher would be.
-                                        <>
-                                            {userEvent.location && (
-                                                <div>{userEvent.location}</div>
-                                            )}
-                                            <div>
-                                                <strong>
-                                                    {arg.event.title}
-                                                </strong>
-                                            </div>
-                                            {userEvent.notes && (
-                                                <div>{userEvent.notes}</div>
-                                            )}
-                                        </>
-                                    ) : !arg.event.title.includes("\n") ? (
-                                        // Free-form personal events are
-                                        // a single line, kept as typed.
-                                        arg.event.title
-                                    ) : (
-                                        <>
-                                            {place && <div>{place}</div>}
-                                            <div>
-                                                <strong>
-                                                    <span className="sm:hidden">
-                                                        {shortHeading}
-                                                    </span>
-                                                    <span className="hidden sm:inline">
-                                                        {heading}
-                                                    </span>
-                                                </strong>
-                                            </div>
-                                            {(detail || lessonTeacher) && (
-                                                <div>
-                                                    {detail || lessonTeacher}
-                                                    {/* Phones only have room for the type. */}
-                                                    {detail &&
-                                                        lessonTeacher && (
-                                                            <span className="hidden sm:inline">
-                                                                {" "}
-                                                                {lessonTeacher}
-                                                            </span>
-                                                        )}
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
+            <div className="pcal-body">
+                <div className="pcal-gutter">
+                    {SLOTS.map((m, i) =>
+                        m % 60 === 0 ? (
+                            <div key={i} className="pcal-slotlabel" style={{ gridRow: i + 1 }}>
+                                {toTime(new Date(days[0].getTime() + m * 60_000))}
                             </div>
+                        ) : null
+                    )}
+                </div>
+
+                <div ref={gridRef} className="pcal-grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+                    {days.map((_, dayIdx) => (
+                        <div key={dayIdx} className="pcal-col" data-day={dayIdx}>
+                            {SLOTS.map((m, i) => (
+                                <div key={i} className={`pcal-slot${m % 60 === 0 ? " is-hour" : ""}`} />
+                            ))}
+
+                            {byDay[dayIdx].map(({ lesson, start, end, lane, span, total }) => {
+                                const arg = toArg(lesson, start, end);
+                                const extra = eventClassNames?.(arg) ?? [];
+                                const classes = [lesson.className, ...extra].filter(Boolean).join(" ");
+                                const [perso, place, heading, detail, tutor] = describe(lesson);
+                                const zones = extraZones(lesson, start, end);
+                                const rowStart = rowOf(minuteOfDay(start), "start");
+                                const rowEnd = Math.max(rowStart + 1, rowOf(minuteOfDay(end) || SLOT_MAX, "end"));
+                                const width = 100 / total;
+
+                                return (
+                                    <button
+                                        type="button"
+                                        key={`${lesson.id}-${start.getTime()}`}
+                                        data-event
+                                        className={`pcal-event ${classes}`}
+                                        style={{
+                                            gridRow: `${rowStart} / ${rowEnd}`,
+                                            gridColumn: `${lane + 1} / span ${span}`,
+                                            width: `${width * span}%`,
+                                        }}
+                                        onClick={() => onEventClick?.(arg)}
+                                    >
+                                        {zones && zones.lead > 0 && (
+                                            <span className="pcal-extra pcal-extra-before" style={{ height: zones.leadPct }}>
+                                                {zones.leadWins ? <span className="pcal-extra-label">{zones.label}</span> : null}
+                                            </span>
+                                        )}
+                                        {zones && zones.trail > 0 && (
+                                            <span className="pcal-extra pcal-extra-after" style={{ top: zones.trailTop }}>
+                                                {!zones.leadWins ? <span className="pcal-extra-label">{zones.label}</span> : null}
+                                            </span>
+                                        )}
+                                        <span className="pcal-event-title">
+                                            {place && <span>{place}</span>}
+                                            <strong>
+                                                {perso ? lesson.title : (
+                                                    <>
+                                                        <span className="sm:hidden">{abbreviateSubjects(heading) || heading}</span>
+                                                        <span className="hidden sm:inline">{heading}</span>
+                                                    </>
+                                                )}
+                                            </strong>
+                                            {(detail || tutor) && (
+                                                <span>
+                                                    {detail || tutor}
+                                                    {detail && tutor && <span className="hidden sm:inline"> {tutor}</span>}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+
+                            {ghost?.day === dayIdx && (
+                                <div className="pcal-ghost is-pressing" style={{ gridRow: `${ghost.slot + 1}`, gridColumn: "1 / -1" }} />
+                            )}
+
+                            {nowDay === dayIdx && nowRow >= 1 && nowRow <= SLOT_COUNT && (
+                                <div className="pcal-now" style={{ gridRow: `${nowRow}`, gridColumn: "1 / -1" }} />
+                            )}
                         </div>
-                    );
-                }}
-                contentHeight="auto"
-                nowIndicator={true}
-                stickyHeaderDates={false}
-                editable={false}
-                eventAllow={() => false}
-                droppable={false}
-                eventStartEditable={false}
-                eventDurationEditable={false}
-                eventResizableFromStart={false}
-                eventClick={onEventClick}
-                selectable={selectable}
-                selectMirror={true}
-                selectLongPressDelay={SELECT_LONG_PRESS_MS}
-                select={onSelect}
-            />
+                    ))}
+                </div>
+            </div>
         </div>
     );
 });

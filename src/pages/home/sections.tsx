@@ -25,12 +25,12 @@ import { useTranslation } from "react-i18next";
 import { useCampus, WIFI_CAMPUS } from "@/lib/utils/campus";
 import { EASE, EASE_EXIT, fadeIn, staggerGroup } from "@/lib/motion";
 
-const MotionCard = motion(Card);
-const MotionAlert = motion(Alert);
+const MotionCard = motion.create(Card);
+const MotionAlert = motion.create(Alert);
 
 const containerVariants = staggerGroup;
 const itemVariants = fadeIn;
-// Section Header Component
+
 export const SectionHeader = ({ title }: { title: string }) => (
     <motion.h2
         className="mb-4 text-2xl font-bold text-mauria-purple dark:text-white"
@@ -40,8 +40,7 @@ export const SectionHeader = ({ title }: { title: string }) => (
     </motion.h2>
 );
 
-// Lesson Card Component
-export const LessonCard = ({
+const LessonCard = ({
     lesson,
     keyPrefix,
     onClick,
@@ -50,8 +49,6 @@ export const LessonCard = ({
     keyPrefix: string;
     onClick: (lesson: PreparedLesson) => () => void;
 }) => {
-    // Aurion rooms read "A812 - Salle … - Campus …"; only the room itself
-    // fits on the card. No room: no pin, the time row stays alone.
     const location = formatLessonLocation(lesson.location);
     return (
         <MotionCard
@@ -90,7 +87,6 @@ export const LessonCard = ({
     );
 };
 
-// Lessons Section Component
 export const LessonsSection = ({
     title,
     lessons,
@@ -115,7 +111,6 @@ export const LessonsSection = ({
     </motion.section>
 );
 
-// Empty State Component
 export const EmptyState = () => {
     const { t } = useTranslation();
 
@@ -134,30 +129,24 @@ export const EmptyState = () => {
     );
 };
 
-// Welcome Header Component
 export const WelcomeHeader = ({ firstName }: { firstName: string }) => {
     const { t } = useTranslation();
+    const title = t("homePage.title").trim();
+    const greeting = [title, firstName].filter(Boolean).join(" ");
 
     return (
         <motion.h2
             className="mt-4 mb-6 text-3xl font-bold text-mauria-purple dark:text-white"
             variants={fadeIn}
         >
-            {t("homePage.title")} {firstName} !
+            {greeting}
+            {greeting.endsWith("!") ? "" : " !"}
         </motion.h2>
     );
 };
 
-// Important Message Component
-// How long a message stays on screen before the carousel moves to the next.
-const MESSAGE_DURATION = 8; // seconds
+const MESSAGE_DURATION = 8;
 
-// One carousel progress segment. The width only ever animates while the
-// segment is the current one; leaving it freezes the bar where the fill
-// had got to. The freeze reads the motion value's live value rather than
-// dropping scaleX from `animate` — framer animates removed keys back to a
-// base target with the prop's own transition, which snapped the bar to 0%
-// in one frame and swallowed the fade out.
 const Segment = ({
     active,
     autoplay,
@@ -168,7 +157,6 @@ const Segment = ({
     fillActive: boolean;
 }) => {
     const scaleX = useMotionValue(0);
-    // Wherever the fill had got to when the segment was left.
     const frozen = scaleX.get();
     const filling = active && autoplay && fillActive;
 
@@ -191,10 +179,6 @@ const Segment = ({
                 transition={
                     active && autoplay
                         ? {
-                              // Auto start: one frame at 0% and full
-                              // opacity so the restart doesn't jump, then
-                              // the fill runs linearly for the whole
-                              // message.
                               scaleX: filling
                                   ? {
                                         duration: MESSAGE_DURATION,
@@ -204,10 +188,6 @@ const Segment = ({
                               opacity: { duration: 0 },
                           }
                         : {
-                              // Manual select: the width snaps to full,
-                              // the opacity fades in. Deselect: frozen
-                              // width, fade out. Both fades last as long
-                              // as every other fade of the app (fadeIn).
                               scaleX: { duration: 0 },
                               opacity: active
                                   ? { duration: 1.0, ease: EASE }
@@ -225,15 +205,11 @@ export const ImportantMessage = ({
     messages?: MessageEntry[];
 }) => {
     const { t } = useTranslation();
-    const [index, setIndex] = useState(0);
-    // Tapping a segment pins that message and stops the rotation.
+    const [rawIndex, setIndex] = useState(0);
     const [autoplay, setAutoplay] = useState(true);
     const contentRef = useRef<HTMLDivElement>(null);
     const [contentHeight, setContentHeight] = useState<number | null>(null);
 
-    // AnimatePresence swaps the message from its own render pass, so a `layout`
-    // prop on the Alert never re-measures it and the height snaps. Watch the
-    // content instead and animate the wrapper height ourselves.
     useEffect(() => {
         const node = contentRef.current;
         if (!node) return;
@@ -246,21 +222,8 @@ export const ImportantMessage = ({
     }, []);
 
     const count = messages.length;
+    const index = count > 0 && rawIndex > count - 1 ? 0 : rawIndex;
 
-    // The list can shrink between refetches — never point past its end.
-    useEffect(() => {
-        if (index > 0 && index > count - 1) {
-            setIndex(0);
-        }
-    }, [count, index]);
-
-    // Advance on a real timer rather than the progress bar's
-    // onAnimationComplete: the app-level AnimatePresence (App.tsx) uses
-    // initial={false}, which silently skips every motion component's mount
-    // animation on the very first route render — including this bar on a
-    // cold load — so its completion callback never fired and the carousel
-    // stayed stuck on the first message until the page remounted (e.g. by
-    // navigating away and back). A timeout always fires regardless.
     useEffect(() => {
         if (!autoplay || count <= 1) return;
         const timer = setTimeout(() => {
@@ -269,14 +232,12 @@ export const ImportantMessage = ({
         return () => clearTimeout(timer);
     }, [autoplay, count, index]);
 
-    // Same reasoning for the bar's fill animation: render it collapsed, then
-    // flip it a frame later so the scaleX transition is always a real prop
-    // change on an already-mounted element instead of a (possibly
-    // suppressed) mount animation.
     const [fillActive, setFillActive] = useState(false);
     useEffect(() => {
-        setFillActive(false);
-        if (!autoplay || count <= 1) return;
+        if (!autoplay || count <= 1) {
+            const reset = requestAnimationFrame(() => setFillActive(false));
+            return () => cancelAnimationFrame(reset);
+        }
         const id = requestAnimationFrame(() => setFillActive(true));
         return () => cancelAnimationFrame(id);
     }, [index, autoplay, count]);
@@ -293,8 +254,6 @@ export const ImportantMessage = ({
             className="mb-8 rounded-lg bg-white dark:bg-mauria-alert oled:bg-black"
         >
             <MotionAlert className="overflow-hidden border-none bg-mauria-accent/20 dark:bg-mauria-alert">
-                {/* mode="wait" so the box only resizes once the old text is
-                    gone — the height then eases to the new one. */}
                 <motion.div
                     className="overflow-hidden"
                     initial={false}
@@ -354,7 +313,6 @@ export const ImportantMessage = ({
     );
 };
 
-// Junia Status Warning Component
 const JuniaWarning = ({
     Icon,
     title,
@@ -426,8 +384,6 @@ export const JuniaStatusWarning = ({
     const { t } = useTranslation();
     const campus = useCampus();
 
-    // Les problèmes Aurion sont globaux aux trois campus ; ceux du Wi-Fi ne
-    // concernent que Lille.
     const warnings = [
         status?.aurionDown && {
             key: "aurion",
@@ -448,8 +404,6 @@ export const JuniaStatusWarning = ({
 
     if (warnings.length === 0) return null;
 
-    // -mt-4 pulls the warnings closer to the important message, whose Alert
-    // already ends with mb-8.
     return (
         <div className="-mt-4 mb-8 space-y-4">
             {warnings.map(({ key, ...warning }) => (

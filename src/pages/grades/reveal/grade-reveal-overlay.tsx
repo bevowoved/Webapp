@@ -7,10 +7,6 @@ import { CaseOpening } from "./case-opening";
 import { ScratchCard } from "./scratch-card";
 import { SlotMachine } from "./slot-machine";
 
-/**
- * Renders the reveal effect picked in the settings. Every mode gets the same
- * contract: a full-screen overlay for one grade, closed through `onClose`.
- */
 export function GradeRevealOverlay({
     grade,
     mode,

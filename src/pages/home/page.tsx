@@ -4,17 +4,16 @@ import { motion } from "framer-motion";
 import { buildWidgetLessons, getHomeUpcoming } from "@/lib/utils/home";
 import { applyExtraTime, useExtraTimeEnabled } from "@/lib/utils/extra-time";
 import { hasWidgetPlugin, pushWidgetPlanning } from "@/lib/native/widget";
-import { useWidgetGradesSync } from "@/lib/native/use-widget-grades-sync";
+import { useWidgetGradesSync } from "@/lib/native/widget";
 import { staggerGroup } from "@/lib/motion";
-import { getFirstName } from "@/lib/api/helper";
-import { fetchImportantMessage } from "@/lib/api/supa";
+import { EMPTY_MESSAGES, fetchImportantMessage, getFirstName } from "@/lib/api/helper";
 import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
-import { useColles, useResolvedPlanning } from "@/lib/hooks/use-colles";
+import { EMPTY_LESSONS, planningQueryOptions, useColles, useResolvedPlanning } from "@/lib/hooks/use-colles";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchPlanning } from "@/lib/api/aurion";
+
 import { PullToRefresh } from "@/components/pull-to-refresh";
-import { Lesson } from "@/types/aurion";
+
 import {
     EmptyState,
     ImportantMessage,
@@ -26,6 +25,8 @@ import { RestaurantsSection } from "./restaurants";
 import { DrawerPlanningContent } from "@/components/drawer-planning-content";
 import { PreparedLesson } from "@/types/home";
 import { useTranslation } from "react-i18next";
+import { addDays, startOfDay } from "@/lib/utils/date-time";
+
 
 export function HomePage() {
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -34,66 +35,82 @@ export function HomePage() {
     );
     const { t } = useTranslation();
     const { isWarming } = useAurionWarm();
+    const juniaStatus = useJuniaStatus();
+    const aurionDown = juniaStatus?.aurionDown ?? false;
     const queryClient = useQueryClient();
 
-    const {
-        data: lessons = [],
-        refetch,
-        isLoading,
-        isFetching,
-    } = useQuery<Lesson[], Error>({
-        queryKey: ["planning"],
-        enabled: !isWarming,
-        queryFn: async (): Promise<Lesson[]> => {
-            const res = await fetchPlanning();
-            // Throw (don't fall back) on failure so React Query keeps the
-            // cached data instead of wiping it — e.g. a failed
-            // refetch-on-focus after the app was backgrounded.
-            if (!res?.success) {
-                throw new Error("Failed to fetch planning");
-            }
-            return res.data ?? [];
-        },
-        staleTime: 1000 * 60 * 5, // 5 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
-        refetchIntervalInBackground: true,
-        refetchInterval: 1000 * 60 * 5, // 5 min
-        placeholderData: (previousData) => previousData,
-    });
+    const { data: lessons = EMPTY_LESSONS, refetch, isLoading } = useQuery(
+        planningQueryOptions(!isWarming && !aurionDown)
+    );
 
-    const isBusy = isWarming || isLoading || isFetching;
+    const isBusy = (isWarming && lessons.length === 0) || isLoading;
 
-    // Pull-to-refresh refreshes every query the page shows, not just the
-    // planning: the RU menu, the important messages and the Junia status
-    // have no pull wiring of their own. Unmounted keys (the other campus's
-    // RU menu) are a no-op.
     const handleRefresh = () => {
-        void refetch();
         void queryClient.refetchQueries({ queryKey: ["importantMessages"] });
         void queryClient.refetchQueries({ queryKey: ["juniaStatus"] });
         void queryClient.refetchQueries({ queryKey: ["dailyMenu"] });
         void queryClient.refetchQueries({ queryKey: ["castelRuMenu"] });
+        return refetch();
     };
 
-    const { data: importantMessages = [] } = useQuery({
+    const { data: importantMessages = EMPTY_MESSAGES } = useQuery({
         queryKey: ["importantMessages"],
         queryFn: fetchImportantMessage,
-        staleTime: 1000 * 60 * 5, // 5 min
-        gcTime: 1000 * 60 * 5, // 5 min
+        staleTime: 1000 * 60 * 5, 
+        gcTime: 1000 * 60 * 5, 
         refetchOnMount: true,
         refetchOnWindowFocus: true,
-        refetchIntervalInBackground: true,
-        refetchInterval: 1000 * 60 * 5, // 5 min
     });
-
-    const juniaStatus = useJuniaStatus();
 
     const colles = useColles();
     const resolvedLessons = useResolvedPlanning(lessons);
 
-    // Tiers temps: the home cards and the native widgets read the same
-    // stretched DS the planning shows, so every surface agrees on the end
-    // time and the "current course" badge covers the granted extra time.
+    useEffect(() => {
+        let timer: number | undefined;
+        let cancelled = false;
+
+        const boundary = (): number => {
+            const now = Date.now();
+            const midnight = startOfDay(addDays(new Date(now), 1)).getTime();
+            let next = midnight;
+            for (const l of resolvedLessons) {
+                const start = new Date(l.start).getTime();
+                const end = new Date(l.end).getTime();
+                if (start > now && start < next) next = start;
+                if (end > now && end < next) next = end;
+            }
+            return next;
+        };
+
+        const schedule = () => {
+            if (cancelled) return;
+            window.clearTimeout(timer);
+            if (document.hidden) return;
+            const delay = Math.max(15_000, boundary() - Date.now());
+            timer = window.setTimeout(() => {
+                if (cancelled || document.hidden) return;
+                void refetch();
+                schedule();
+            }, delay);
+        };
+
+        const onVisibility = () => {
+            if (document.hidden) {
+                window.clearTimeout(timer);
+            } else {
+                schedule();
+            }
+        };
+
+        schedule();
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
+    }, [resolvedLessons, refetch]);
+
     const extraTimeEnabled = useExtraTimeEnabled();
     const shownLessons = useMemo(
         () => applyExtraTime(resolvedLessons, extraTimeEnabled),
@@ -104,10 +121,6 @@ export function HomePage() {
         lessons: [...shownLessons, ...colles],
     });
 
-    // Pousse le planning au widget Android a chaque fois que les cours ou les
-    // khôlles changent. Le planning résolu remplace le DS générique des
-    // MPI/PSI par le vrai, et les khôlles suivent le même format de titre
-    // qu'Aurion (cf. buildCollesLessons), donc parseFromTitle les lit.
     useEffect(() => {
         if (shownLessons.length === 0 || !hasWidgetPlugin()) return;
         void pushWidgetPlanning(
@@ -115,8 +128,6 @@ export function HomePage() {
         );
     }, [shownLessons, colles]);
 
-    // Idem pour le widget de notes, depuis le cache : sinon il ne se
-    // rafraichit qu'en ouvrant la page notes.
     useWidgetGradesSync();
     const [firstName, setFirstName] = useState<string>(t("homePage.welcome"));
 
@@ -132,6 +143,21 @@ export function HomePage() {
         loadFirstName();
     }, [t]);
 
+    const openLesson = (lesson: PreparedLesson) => () => {
+        setDrawerOpen(true);
+        setCurrentLesson(lesson);
+    };
+
+    const sections = [
+        { title: t("homePage.current"), lessons: current ? [current] : [], keyPrefix: "current" },
+        { title: t("homePage.today"), lessons: today, keyPrefix: "today" },
+        {
+            title: t("homePage.tomorrow"),
+            lessons: current || today.length > 0 ? [] : tomorrow,
+            keyPrefix: "tomorrow",
+        },
+    ].filter((section) => section.lessons.length > 0);
+
     return (
         <PullToRefresh
             onRefresh={handleRefresh}
@@ -145,42 +171,16 @@ export function HomePage() {
                 <JuniaStatusWarning status={juniaStatus} />
                 <RestaurantsSection />
 
-                {current && (
+                {sections.map((section) => (
                     <LessonsSection
-                        title={t("homePage.current")}
-                        lessons={[current]}
-                        keyPrefix="current"
-                        onClick={(lesson) => () => {
-                            setDrawerOpen(true);
-                            setCurrentLesson(lesson);
-                        }}
+                        key={section.keyPrefix}
+                        title={section.title}
+                        lessons={section.lessons}
+                        keyPrefix={section.keyPrefix}
+                        onClick={openLesson}
                     />
-                )}
-                {today.length > 0 && (
-                    <LessonsSection
-                        title={t("homePage.today")}
-                        lessons={today}
-                        keyPrefix="today"
-                        onClick={(lesson) => () => {
-                            setDrawerOpen(true);
-                            setCurrentLesson(lesson);
-                        }}
-                    />
-                )}
-                {!current && today.length === 0 && tomorrow.length > 0 && (
-                    <LessonsSection
-                        title={t("homePage.tomorrow")}
-                        lessons={tomorrow}
-                        keyPrefix="tomorrow"
-                        onClick={(lesson) => () => {
-                            setDrawerOpen(true);
-                            setCurrentLesson(lesson);
-                        }}
-                    />
-                )}
-                {!current && today.length === 0 && tomorrow.length === 0 && (
-                    <EmptyState />
-                )}
+                ))}
+                {sections.length === 0 && <EmptyState />}
             </motion.div>
             <DrawerPlanningContent
                 drawerOpen={drawerOpen}

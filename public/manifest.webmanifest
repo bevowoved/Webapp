@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "Mauria",
+  "short_name": "Mauria",
+  "description": "Le tableau de bord etudiant Junia",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone"],
+  "orientation": "portrait",
+  "background_color": "#1e1b2e",
+  "theme_color": "#1e1b2e",
+  "lang": "fr",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" },
+    { "src": "/icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "maskable" }
+  ]
+}

@@ -16,20 +16,32 @@ import {
     useTransform,
 } from "framer-motion";
 import { useTranslation } from "react-i18next";
+import {
+    Atom,
+    Brain,
+    ChevronsRight,
+    Cpu,
+    Dumbbell,
+    FolderKanban,
+    Languages,
+    PlayingCardsFan,
+    ShieldCheck,
+    Sparkles,
+    Waves,
+    Wrench,
+    type LucideIcon,
+} from "lucide-react";
+import type { TFunction } from "i18next";
 
 import type { Grade } from "@/types/aurion";
+import { GRADE_SCALE, getGradeBadgeInfoFromCode, parseGradeValue } from "@/lib/utils/grades";
+import { triggerHapticPattern } from "@/lib/utils/sfx";
+import { Card } from "@/components/ui/card";
+import { fadeInIndexed } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
-import {
-    buildBoosterCard,
-    cardTitle,
-    CARD_TREATMENTS,
-    isFullArt,
-    mulberry32,
-    type BoosterCard,
-} from "./card-data";
-import { CardBack, PokemonCard } from "./pokemon-card";
+import { hashSeed, mulberry32, CORNERS } from "../use-grade-reveal";
 
-export const MAX_CARDS_PER_PACK = 6;
+const MAX_CARDS_PER_PACK = 6;
 
 type Phase = "pack" | "tearing" | "cards" | "summary";
 
@@ -42,11 +54,6 @@ const shuffle = <T,>(items: T[], random: () => number): T[] => {
     return copy;
 };
 
-/** Tilt + glare, driven straight through the DOM to stay smooth on mobile.
-    The card keeps tracking the pointer even outside its box, with the effect
-    damping to near-zero a short distance away. On touch devices the gyroscope
-    drives the tilt instead of the pointer. Until the first real input, the
-    card sways on its own so the holo is lit from the moment it lands. */
 function useCardTilt(disabled: boolean) {
     const ref = useRef<HTMLDivElement>(null);
 
@@ -86,7 +93,6 @@ function useCardTilt(disabled: boolean) {
             node.style.transform = "rotateY(0deg) rotateX(0deg)";
         };
 
-        // Idle sway: a slow figure-eight, stopped by the first real input
         const IDLE_STRENGTH = 0.8;
         let idling = false;
         let idleFrame = 0;
@@ -125,8 +131,6 @@ function useCardTilt(disabled: boolean) {
             apply(px, py, strength);
         };
 
-        // Gyroscope: rest position captured on first reading, then relative
-        // tilt is mapped to the same px/py space the pointer uses.
         const LIMIT_G = 16;
         const LIMIT_B = 18;
         let baseSet = false;
@@ -138,7 +142,7 @@ function useCardTilt(disabled: boolean) {
             if (event.gamma == null || event.beta == null) return;
             if (!gotOrient) {
                 gotOrient = true;
-                // Gyro is live: drop the pointer fallback.
+
                 window.removeEventListener("pointermove", onMove);
             }
             if (!baseSet) {
@@ -155,7 +159,7 @@ function useCardTilt(disabled: boolean) {
                 -LIMIT_B,
                 Math.min(LIMIT_B, event.beta - baseBeta)
             );
-            // Sensor noise while the phone lies still must not end the sway
+
             if (idling) {
                 if (Math.abs(g) < 2 && Math.abs(b) < 2) return;
                 stopIdle();
@@ -182,8 +186,7 @@ function useCardTilt(disabled: boolean) {
 
         if (useGyro) {
             addGyro();
-            // If no gyro reading arrives (permission denied, no sensor), fall
-            // back to the pointer so the card never goes dead.
+
             fallbackTimer = window.setTimeout(() => {
                 if (!cleanedUp && !gotOrient) addPointer();
             }, 1200);
@@ -204,11 +207,6 @@ function useCardTilt(disabled: boolean) {
     return { ref };
 }
 
-/**
- * iOS 13+ gates DeviceOrientationEvent behind a user gesture. Calling this
- * from the pack-tap (a real click) grants permission before any card mounts.
- * No-op on Android/desktop.
- */
 function requestGyroPermission() {
     const DOE = window.DeviceOrientationEvent as unknown as {
         requestPermission?: () => Promise<"granted" | "denied">;
@@ -218,18 +216,12 @@ function requestGyroPermission() {
     }
 }
 
-const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(pattern);
-    }
-};
+const vibrate = (pattern: number | number[]) => triggerHapticPattern(pattern);
 
-/** Where the strip is torn off, in % of the pack height */
 const STRIP = 13;
 const TEAR_TEETH = 22;
 const TEAR_DEPTH = 0.9;
 
-/** Crimped top and bottom seals, plus the two V notches on the tear line */
 const PACK_OUTLINE = (() => {
     const teeth = 28;
     const depth = 1.1;
@@ -253,11 +245,6 @@ const PACK_OUTLINE = (() => {
     ].join(", ")})`;
 })();
 
-/**
- * Clip paths for the pack torn `progress` (0-1) of the way, starting from the
- * left edge (`direction` 1) or the right one (-1). The flap and the body share
- * the same jagged points so the two edges mesh.
- */
 const tearGeometry = (progress: number, direction: number) => {
     const reach = progress * 100;
     const x = (u: number) => (direction > 0 ? u : 100 - u);
@@ -279,7 +266,7 @@ const tearGeometry = (progress: number, direction: number) => {
             `${far}% 100%`,
             `${near}% 100%`,
         ].join(", ")})`,
-        // Overlaps the body a hair so no seam shows along the intact part
+
         attached: `polygon(${tip}% 0%, ${far}% 0%, ${far}% ${
             STRIP + 0.4
         }%, ${tip}% ${STRIP + 0.4}%)`,
@@ -293,7 +280,6 @@ const tearGeometry = (progress: number, direction: number) => {
     };
 };
 
-/** Four-point sparkle printed on the pack art */
 const STAR =
     "polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%)";
 
@@ -304,7 +290,6 @@ const PACK_STARS = [
     { left: 18, top: 78, size: 0.7, delay: 1.9 },
 ];
 
-/** Pokémon-style logo lettering: yellow fill, thick blue outline */
 const LOGO_SHADOW = [
     "0.07em 0 0 #2a75bb",
     "-0.07em 0 0 #2a75bb",
@@ -321,10 +306,6 @@ const LOGO_SHADOW = [
 const CRIMP =
     "repeating-linear-gradient(90deg, rgba(255,255,255,0.35) 0 0.12em, rgba(0,0,0,0.22) 0.12em 0.3em), linear-gradient(180deg, #f4f4f5, #a1a1aa 55%, #52525b)";
 
-/**
- * The printed foil. Drawn three times (body, intact strip, torn flap), so the
- * strip copies skip everything below the tear line.
- */
 function PackFace({
     accent,
     dark,
@@ -348,7 +329,7 @@ function PackFace({
                 background: `radial-gradient(ellipse at 25% 15%, ${accent}, transparent 55%), linear-gradient(160deg, ${accent} 0%, ${dark} 55%, #0b0b14 100%)`,
             }}
         >
-            {/* Foil grain and a faint rainbow, plain alpha (no blend modes) */}
+
             <span
                 className="absolute inset-0"
                 style={{
@@ -356,7 +337,7 @@ function PackFace({
                         "repeating-linear-gradient(115deg, rgba(255,255,255,0.07) 0 0.35em, transparent 0.35em 0.7em), linear-gradient(125deg, transparent 20%, rgba(252,211,77,0.16) 35%, rgba(103,232,249,0.16) 50%, rgba(192,132,252,0.16) 65%, transparent 80%)",
                 }}
             />
-            {/* Pillow shading: the pack bulges in the middle */}
+
             <span
                 className="absolute inset-0"
                 style={{
@@ -365,7 +346,6 @@ function PackFace({
                 }}
             />
 
-            {/* Top seal, then the tear line */}
             <span
                 className="absolute inset-x-0 top-0 h-[7%]"
                 style={{
@@ -383,7 +363,7 @@ function PackFace({
 
             {!stripOnly && (
                 <>
-                    {/* Logo */}
+
                     <div className="absolute inset-x-0 top-[16.5%] flex flex-col items-center gap-[0.2em]">
                         <span
                             className="whitespace-nowrap text-[1.7em] font-black italic leading-none text-[#ffcb05]"
@@ -396,7 +376,6 @@ function PackFace({
                         </span>
                     </div>
 
-                    {/* Illustration window */}
                     <div
                         className="absolute inset-x-[8%] top-[29%] bottom-[27%] overflow-hidden rounded-[0.8em]"
                         style={{
@@ -461,7 +440,6 @@ function PackFace({
                         ))}
                     </div>
 
-                    {/* Set ribbon and card count */}
                     <div className="absolute inset-x-0 top-[74%] flex flex-col items-center gap-[0.5em]">
                         <span className="w-full border-y border-white/20 bg-black/45 py-[0.25em] text-center font-mono text-[0.95em] font-bold uppercase tracking-[0.25em] text-white">
                             {t("gradesPage.booster.setName")}
@@ -471,7 +449,6 @@ function PackFace({
                         </span>
                     </div>
 
-                    {/* Bottom seal */}
                     <span
                         className="absolute inset-x-0 bottom-0 h-[7%]"
                         style={{
@@ -483,7 +460,7 @@ function PackFace({
             )}
 
             <span className="poke-pack-sheen absolute inset-0" />
-            {/* Glare following the tilt, plain alpha (no blend modes) */}
+
             <span
                 className="absolute inset-0"
                 style={{
@@ -496,11 +473,6 @@ function PackFace({
     );
 }
 
-/**
- * The sealed pack. Slide a finger along the dotted line, from either side, to
- * rip the strip off bit by bit; the tear never heals between two swipes. A
- * plain tap tears it in one go.
- */
 function BoosterPack({
     accent,
     dark,
@@ -521,8 +493,8 @@ function BoosterPack({
     const progress = useMotionValue(0);
     const direction = useMotionValue(1);
     const [started, setStarted] = useState(false);
-    // Flattened while tearing, so the pack holds still under the finger
-    const tilt = useCardTilt(started || tearing);
+
+    const { ref: tiltRef } = useCardTilt(started || tearing);
     const directionLocked = useRef(false);
     const panned = useRef(false);
     const opened = useRef(false);
@@ -541,7 +513,6 @@ function BoosterPack({
     );
     const openingOpacity = useTransform(progress, [0, 0.05], [0, 1]);
 
-    // The flap hinges on the tip of the tear and curls up as it grows
     const flapRotate = useTransform(
         [progress, direction],
         ([p, d]: number[]) => d * p * 22
@@ -563,7 +534,7 @@ function BoosterPack({
         const next = Math.min(1, current + amount);
         if (next <= current) return;
         progress.set(next);
-        // A short buzz every few millimetres, like foil giving way
+
         const tick = Math.floor(next * 14);
         if (tick !== lastTick.current) {
             lastTick.current = tick;
@@ -611,7 +582,7 @@ function BoosterPack({
                 ease: "easeInOut",
             }}
         >
-            {/* Halo behind the pack */}
+
             <span
                 className="pointer-events-none absolute inset-[-12%] rounded-full opacity-40 blur-3xl"
                 style={{ background: accent }}
@@ -619,7 +590,7 @@ function BoosterPack({
 
             <div style={{ perspective: 1000 }}>
                 <div
-                    ref={tilt.ref}
+                    ref={tiltRef}
                     className="transition-transform duration-200 ease-out"
                 >
                     <motion.button
@@ -638,7 +609,7 @@ function BoosterPack({
                             panned.current = false;
                         }}
                         onClick={() => {
-                            // A swipe must not also tear the whole pack on its click
+
                             if (panned.current) return;
                             requestGyroPermission();
                             tearAll();
@@ -660,18 +631,15 @@ function BoosterPack({
                             );
                         }}
                         onPanEnd={() => {
-                            // Pointer up is a user gesture: iOS lets us ask for the
-                            // gyroscope here, before any card mounts
+
                             requestGyroPermission();
                             if (!opened.current && progress.get() >= 0.8)
                                 tearAll();
                         }}
                     >
-                        {/* Invisible margin on both sides: a swipe can start a
-                    little off the pack, fingers are not that precise */}
+
                         <span className="absolute inset-y-0 -inset-x-10" />
 
-                        {/* Ground shadow */}
                         <span className="pointer-events-none absolute inset-x-[8%] -bottom-[4%] h-[6%] rounded-full bg-black/60 blur-md" />
 
                         <motion.div
@@ -688,7 +656,6 @@ function BoosterPack({
                             />
                         </motion.div>
 
-                        {/* Light leaking out of the opening */}
                         <motion.span
                             className="pointer-events-none absolute h-[3em] -translate-y-full"
                             style={{
@@ -715,7 +682,6 @@ function BoosterPack({
                             />
                         </motion.div>
 
-                        {/* The torn flap, flung away once the strip comes off */}
                         <motion.div
                             className="pointer-events-none absolute inset-0"
                             animate={
@@ -750,7 +716,6 @@ function BoosterPack({
                             </motion.div>
                         </motion.div>
 
-                        {/* Bright torn edge */}
                         <motion.span
                             className="pointer-events-none absolute h-[2px] -translate-y-1/2 rounded-full bg-white"
                             style={{
@@ -762,7 +727,6 @@ function BoosterPack({
                             }}
                         />
 
-                        {/* Hint: a spark running along the dotted line */}
                         {!started && !tearing && !reducedMotion && (
                             <motion.span
                                 className="pointer-events-none absolute h-[0.5em] w-[3em] -translate-y-1/2 rounded-full"
@@ -786,7 +750,6 @@ function BoosterPack({
                             />
                         )}
 
-                        {/* Cone of light escaping the torn pack */}
                         <motion.span
                             className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-full"
                             style={{
@@ -825,7 +788,6 @@ function BoosterPack({
     );
 }
 
-/** Holo frozen at a flattering angle, for cards that don't tilt */
 const STILL_HOLO = {
     "--pointer-x": "35%",
     "--pointer-y": "30%",
@@ -837,27 +799,18 @@ const STILL_HOLO = {
     "--card-opacity": "0.8",
 } as CSSProperties;
 
-/** Width of the card being revealed, shared with the pile behind it */
 const stageWidth = () => Math.min(300, Math.round(window.innerWidth * 0.72));
 
-/** How many of the waiting cards are drawn behind the current one */
 const MAX_PILE = 4;
 
-/** Where a waiting card sits in the fan, `depth` cards behind the front */
 const pileOffset = (depth: number) => ({
     x: depth * 9,
     y: -depth * 7,
     rotate: depth * 2.5,
 });
 
-/** How long the revealed card takes to leave, before the next one moves up */
 const CARD_EXIT = 0.25;
 
-/**
- * The cards still waiting in the pack, face down and fanned out behind the
- * current one. Keyed by deck position, so the pile slides forward as each
- * card is revealed.
- */
 function CardPile({ remaining, first }: { remaining: number; first: number }) {
     const width = stageWidth();
     const shown = Math.min(remaining, MAX_PILE);
@@ -876,8 +829,7 @@ function CardPile({ remaining, first }: { remaining: number; first: number }) {
                             opacity: 1 - depth * 0.12,
                             ...pileOffset(depth),
                         }}
-                        // Held until the front card is gone: the real card
-                        // then takes its place, so the swap doesn't show
+
                         exit={{
                             opacity: 0,
                             transition: { duration: 0, delay: CARD_EXIT },
@@ -902,13 +854,13 @@ function CardStage({
     onTap: () => void;
 }) {
     const reducedMotion = useReducedMotion();
-    const tilt = useCardTilt(!faceUp);
+    const { ref: tiltRef } = useCardTilt(!faceUp);
     const width = stageWidth();
 
     return (
         <div className="relative" style={{ perspective: 1200 }} onClick={onTap}>
             <div
-                ref={tilt.ref}
+                ref={tiltRef}
                 className="transition-transform duration-200 ease-out"
                 style={{ transformStyle: "preserve-3d" }}
             >
@@ -918,7 +870,7 @@ function CardStage({
                     initial={{ rotateY: 180 }}
                     animate={{
                         rotateY: faceUp ? 0 : 180,
-                        // The rarer the card, the harder it pops out
+
                         scale:
                             faceUp && !reducedMotion
                                 ? [1, 1 + 0.025 * (tierOf(card) + 1), 1]
@@ -958,17 +910,12 @@ function CardStage({
     );
 }
 
-/**
- * Anticipation while the card is still face down. Same colors whatever lies
- * underneath, so the wait builds hype without giving the rarity away.
- */
 const WAITING_GLOW =
     "conic-gradient(from 0deg, #fcd34d, #67e8f9, #c084fc, #fcd34d)";
 
 function WaitingGlow() {
     return (
-        // Outer layer grows in with the card coming off the pile; the inner
-        // one keeps pulsing on its own
+
         <motion.span
             className="pointer-events-none absolute inset-[-10%]"
             initial={{ opacity: 0, scale: 0.6 }}
@@ -997,20 +944,19 @@ function WaitingGlow() {
 const EMBER_COLORS = ["#fcd34d", "#67e8f9", "#c084fc"];
 
 function WaitingEmbers() {
-    const embers = useMemo(
-        () =>
-            Array.from({ length: 16 }, (_, index) => ({
-                left: -8 + Math.random() * 116,
-                top: 55 + Math.random() * 50,
-                rise: 120 + Math.random() * 160,
-                drift: (Math.random() - 0.5) * 40,
-                size: 2 + Math.random() * 4,
-                duration: 1.8 + Math.random() * 1.6,
-                delay: Math.random() * 2.5,
-                color: EMBER_COLORS[index % EMBER_COLORS.length],
-            })),
-        []
-    );
+    const embers = useMemo(() => {
+        const random = mulberry32(hashSeed("booster-embers"));
+        return Array.from({ length: 16 }, (_, index) => ({
+            left: -8 + random() * 116,
+            top: 55 + random() * 50,
+            rise: 120 + random() * 160,
+            drift: (random() - 0.5) * 40,
+            size: 2 + random() * 4,
+            duration: 1.8 + random() * 1.6,
+            delay: random() * 2.5,
+            color: EMBER_COLORS[index % EMBER_COLORS.length],
+        }));
+    }, []);
 
     return (
         <motion.div
@@ -1047,36 +993,31 @@ function WaitingEmbers() {
     );
 }
 
-/** 0 (common) to 5 (sir): drives how loud the reveal is */
 const tierOf = (card: BoosterCard): number =>
     CARD_TREATMENTS.indexOf(card.treatment);
 
 const RAINBOW = ["#f87171", "#fbbf24", "#4ade80", "#38bdf8", "#c084fc"];
 
-/**
- * Burst fired as the card lands face up. It only plays once the grade is on
- * screen, so it can scale with the rarity without spoiling the flip: a common
- * gets a small ring, a full-art gets light rays and a shower of sparks.
- */
 function RevealBurst({ card }: { card: BoosterCard }) {
     const tier = tierOf(card);
     const accent = card.subject.accent;
     const rainbow = card.treatment === "sir";
 
     const sparks = useMemo(() => {
+        const random = mulberry32(hashSeed(card.seed, tier, "reveal-burst"));
         const count = 6 + tier * 4;
         return Array.from({ length: count }, (_, index) => ({
-            angle: (index / count) * Math.PI * 2 + Math.random() * 0.5,
-            distance: 110 + tier * 22 + Math.random() * 60,
-            size: 3 + Math.random() * (3 + tier),
-            delay: 0.12 + Math.random() * 0.15,
+            angle: (index / count) * Math.PI * 2 + random() * 0.5,
+            distance: 110 + tier * 22 + random() * 60,
+            size: 3 + random() * (3 + tier),
+            delay: 0.12 + random() * 0.15,
             color: rainbow ? RAINBOW[index % RAINBOW.length] : accent,
         }));
-    }, [tier, accent, rainbow]);
+    }, [tier, accent, rainbow, card.seed]);
 
     return (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            {/* Shockwave */}
+
             <motion.span
                 className="absolute inset-0 rounded-[1.2rem]"
                 style={{
@@ -1090,7 +1031,6 @@ function RevealBurst({ card }: { card: BoosterCard }) {
                 transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
             />
 
-            {/* Sparks thrown off the card */}
             {sparks.map((spark, index) => (
                 <motion.span
                     key={index}
@@ -1119,7 +1059,6 @@ function RevealBurst({ card }: { card: BoosterCard }) {
     );
 }
 
-/** Light rays spinning behind a rare card, painted under the card itself */
 function RevealRays({ card }: { card: BoosterCard }) {
     const tier = tierOf(card);
     const colors = card.treatment === "sir" ? RAINBOW : [card.subject.accent];
@@ -1178,9 +1117,9 @@ function Booster({
         );
     };
 
-    // Rolled once per opening: tapping the entry card is a fresh pull, never
-    // a replay of the same pack. Kept in state so re-renders don't re-roll.
-    const [packSeed] = useState(() => (Math.random() * 0x100000000) >>> 0);
+    const [packSeed] = useState(() =>
+        hashSeed("booster-pack", unopened.length, unopened[0]?.date ?? "", unopened[0]?.code ?? "")
+    );
 
     const deck = useMemo<BoosterCard[]>(() => {
         if (unopened.length === 0) return [];
@@ -1200,7 +1139,6 @@ function Booster({
         [newCards, onClose]
     );
 
-    // Nothing to hand out (opened from a stale list): get out of the way
     useEffect(() => {
         if (deck.length === 0) close();
     }, [deck.length, close]);
@@ -1214,7 +1152,7 @@ function Booster({
                 "vibrate" in navigator
             ) {
                 const tier = tierOf(card);
-                navigator.vibrate(
+                triggerHapticPattern(
                     tier >= 4 ? [12, 40, 24, 40, 60] : [12, 40, 12 + tier * 6]
                 );
             }
@@ -1260,7 +1198,6 @@ function Booster({
                 />
             )}
 
-            {/* Flash as the pack gives up its cards */}
             <AnimatePresence>
                 {phase === "tearing" && !reducedMotion && (
                     <motion.span
@@ -1279,7 +1216,6 @@ function Booster({
                 )}
             </AnimatePresence>
 
-            {/* Full-art pulls light up the whole screen */}
             <AnimatePresence>
                 {phase === "cards" &&
                     faceUp &&
@@ -1319,8 +1255,6 @@ function Booster({
                         })}
                     </p>
 
-                    {/* Fixed size: the pile stays put while one card leaves
-                        and the next comes in */}
                     <div
                         className="relative isolate"
                         style={{ width: stageWidth(), aspectRatio: "63 / 88" }}
@@ -1337,7 +1271,7 @@ function Booster({
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={index}
-                                // Slides forward from the top of the pile
+
                                 initial={pileOffset(1)}
                                 animate={{ x: 0, y: 0, rotate: 0 }}
                                 exit={{
@@ -1349,8 +1283,7 @@ function Booster({
                                 transition={{ duration: 0.35, ease: "easeOut" }}
                                 className="relative"
                             >
-                                {/* Inside the card's wrapper so the wait
-                                    effects come and go with the card itself */}
+
                                 <AnimatePresence>
                                     {!faceUp && !reducedMotion && (
                                         <WaitingGlow key="glow" />
@@ -1469,7 +1402,6 @@ function Booster({
     );
 }
 
-/** Pack opening for the grades waiting to be discovered. */
 export function BoosterOverlay({
     open,
     unopened,
@@ -1488,3 +1420,616 @@ export function BoosterOverlay({
         document.body
     );
 }
+
+const CARD_TREATMENTS = ["common", "uncommon", "holo", "ex", "ar", "sir"] as const;
+
+type CardTreatment = (typeof CARD_TREATMENTS)[number];
+
+const UNKNOWN_SUBJECT = "gradesPage.booster.unknownSubject";
+
+const cardTitle = (card: BoosterCard, t: TFunction): string =>
+    card.subjectLabelKey === UNKNOWN_SUBJECT ? card.grade.name : t(card.subjectLabelKey);
+
+const isFullArt = (treatment: CardTreatment): boolean =>
+    treatment === "ar" || treatment === "sir";
+
+type SubjectCard = {
+    id: string;
+    icon: LucideIcon;
+    typeKey: string;
+    weaknessKey: string;
+    resistanceKey: string;
+
+    accent: string;
+    light: string;
+    dark: string;
+};
+
+const TYPE = "gradesPage.booster.types";
+
+const subjectCard = (
+    id: string,
+    icon: LucideIcon,
+    type: string,
+    weakness: string,
+    resistance: string,
+    accent: string,
+    light: string,
+    dark: string
+): SubjectCard => ({
+    id,
+    icon,
+    typeKey: `${TYPE}.${type}`,
+    weaknessKey: `${TYPE}.${weakness}`,
+    resistanceKey: `${TYPE}.${resistance}`,
+    accent,
+    light,
+    dark,
+});
+
+const FALLBACK_SUBJECT: SubjectCard = subjectCard("unknown", Sparkles, "colorless", "fighting", "psychic", "#9ca3af", "#e5e7eb", "#4b5563");
+
+const SUBJECT_CARDS: Record<string, SubjectCard> = Object.fromEntries(
+    [
+        subjectCard("maths", Brain, "psychic", "darkness", "fighting", "#a855f7", "#e9d5ff", "#6b21a8"),
+        subjectCard("physics", Atom, "lightning", "fighting", "metal", "#f59e0b", "#fde68a", "#b45309"),
+        subjectCard("computerScience", Cpu, "metal", "fire", "grass", "#06b6d4", "#a5f3fc", "#0e7490"),
+        subjectCard("english", Waves, "water", "lightning", "metal", "#3b82f6", "#bfdbfe", "#1d4ed8"),
+        subjectCard("sii", Wrench, "fighting", "psychic", "darkness", "#ea580c", "#fed7aa", "#9a3412"),
+        subjectCard("fhs", Sparkles, "fairy", "metal", "darkness", "#ec4899", "#fbcfe8", "#9d174d"),
+        subjectCard("eps", Dumbbell, "grass", "fire", "water", "#22c55e", "#bbf7d0", "#15803d"),
+        subjectCard("lv2", Languages, "dragon", "dragon", "fairy", "#6366f1", "#c7d2fe", "#3730a3"),
+        subjectCard("tipe", FolderKanban, "colorless", "fighting", "psychic", "#64748b", "#e2e8f0", "#334155"),
+        subjectCard("pix", ShieldCheck, "darkness", "grass", "psychic", "#71717a", "#d4d4d8", "#27272a"),
+    ].map((card) => [card.id, card])
+);
+
+type BoosterAttack = {
+    nameKey: string;
+    cost: number;
+    damage: number;
+};
+
+type BoosterCard = {
+    grade: Grade;
+    isNew: boolean;
+    treatment: CardTreatment;
+    subject: SubjectCard;
+    subjectLabelKey: string;
+    value: number | null;
+    hp: number;
+    attacks: BoosterAttack[];
+    retreat: number;
+    number: string;
+    seed: number;
+};
+
+const ATTACK_POOL_SIZE = 6;
+
+const gradeSeed = (grade: Grade): number => hashSeed(grade.date, grade.code, grade.name);
+
+const subjectIdFromLabelKey = (labelKey: string | null | undefined): string =>
+    labelKey?.split(".").pop() ?? "unknown";
+
+const TREATMENT_TIERS: { min: number; treatment: CardTreatment }[] = [
+    { min: 0, treatment: "common" },
+    { min: 10, treatment: "uncommon" },
+    { min: 12, treatment: "holo" },
+    { min: 14, treatment: "ex" },
+    { min: 16, treatment: "ar" },
+    { min: 18, treatment: "sir" },
+];
+
+const getTreatmentForGrade = (value: number | null, isNew: boolean): CardTreatment => {
+    const grade = value ?? 0;
+    if (!isNew) return grade >= 14 ? "uncommon" : "common";
+    let treatment: CardTreatment = "common";
+    for (const tier of TREATMENT_TIERS) if (grade >= tier.min) treatment = tier.treatment;
+    return treatment;
+};
+
+function buildBoosterCard(grade: Grade, isNew: boolean): BoosterCard {
+    const seed = gradeSeed(grade);
+    const value = parseGradeValue(grade.grade);
+    const labelKey = grade.code?.trim() ? getGradeBadgeInfoFromCode(grade.code)?.labelKey || null : null;
+    const subjectId = subjectIdFromLabelKey(labelKey);
+    const subject = SUBJECT_CARDS[subjectId] ?? FALLBACK_SUBJECT;
+    const coefficient = Number.parseFloat((grade.coefficient || "1").replace(",", "."));
+    const safeCoefficient = Number.isNaN(coefficient) ? 1 : coefficient;
+    const random = mulberry32(seed ^ 0x9e3779b9);
+    const pick = () => Math.floor(random() * ATTACK_POOL_SIZE);
+
+    return {
+        grade,
+        isNew,
+        treatment: getTreatmentForGrade(value, isNew),
+        subject,
+        subjectLabelKey: labelKey ?? UNKNOWN_SUBJECT,
+        value,
+        hp: Math.max(30, Math.round(value ?? 3) * 10),
+        attacks: [
+            {
+                nameKey: `gradesPage.booster.subjects.${subject.id}.light.${pick()}`,
+                cost: 1,
+                damage: Math.max(10, Math.round(((value ?? 0) * 2) / 5) * 5),
+            },
+            {
+                nameKey: `gradesPage.booster.subjects.${subject.id}.heavy.${pick()}`,
+                cost: safeCoefficient >= 5 ? 3 : 2,
+                damage: Math.max(20, Math.round((value ?? 0) / 2) * 10),
+            },
+        ],
+        retreat: Math.min(3, Math.max(1, Math.round(safeCoefficient / 3))),
+        number: `${String((seed % 250) + 1).padStart(3, "0")}/250`,
+        seed,
+    };
+}
+
+const RARITY_SYMBOL: Record<CardTreatment, string> = {
+    common: "●",
+    uncommon: "◆",
+    holo: "★",
+    ex: "★",
+    ar: "★★",
+    sir: "★★★",
+};
+
+const EnergyDot = ({ color }: { color: string }) => (
+    <span
+        className="inline-block size-[0.75em] rounded-full"
+        style={{
+            background: `radial-gradient(circle at 34% 30%, #ffffff, ${color} 62%, rgba(0,0,0,0.35))`,
+            boxShadow: "inset 0 0 0 0.05em rgba(0,0,0,0.35)",
+        }}
+    />
+);
+
+function CardArt({ card, full }: { card: BoosterCard; full?: boolean }) {
+    const Icon = card.subject.icon;
+    const random = mulberry32(card.seed);
+    const blobs = Array.from({ length: 5 }, () => ({
+        x: random() * 100,
+        y: random() * 100,
+        size: 20 + random() * 45,
+    }));
+
+    return (
+        <div
+            className="absolute inset-0 overflow-hidden"
+            style={{
+                background: `radial-gradient(circle at 50% 22%, ${card.subject.light}, ${card.subject.accent} 45%, ${card.subject.dark} 100%)`,
+            }}
+        >
+            {blobs.map((blob, index) => (
+                <span
+                    key={index}
+                    className="absolute rounded-full opacity-30 blur-[0.4em]"
+                    style={{
+                        left: `${blob.x}%`,
+                        top: `${blob.y}%`,
+                        width: `${blob.size}%`,
+                        height: `${blob.size}%`,
+                        background:
+                            index % 2 === 0
+                                ? card.subject.light
+                                : card.subject.dark,
+                    }}
+                />
+            ))}
+
+            <span
+                className="absolute inset-0 opacity-25"
+                style={{
+                    backgroundImage:
+                        "repeating-conic-gradient(from 0deg at 50% 45%, rgba(255,255,255,0.7) 0deg 2deg, transparent 2deg 12deg)",
+                }}
+            />
+
+            <Icon
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white/25"
+                style={{ width: full ? "62%" : "58%", height: "auto" }}
+            />
+
+            <span
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[0.5em]"
+                style={{
+                    width: full ? "70%" : "78%",
+                    height: full ? "50%" : "62%",
+                    background: `radial-gradient(ellipse, rgba(0,0,0,0.45), transparent 70%)`,
+                }}
+            />
+            <span className="absolute inset-0 flex items-center justify-center">
+                <span
+                    className="flex items-baseline font-black leading-none text-white"
+                    style={{
+                        textShadow: "0 0.04em 0.08em rgba(0,0,0,0.85)",
+                        WebkitTextStroke: "0.03em rgba(0,0,0,0.4)",
+                    }}
+                >
+                    <span style={{ fontSize: full ? "4.6em" : "3.1em" }}>
+                        {card.grade.grade}
+                    </span>
+                    <span
+                        className="opacity-80"
+                        style={{ fontSize: full ? "1.5em" : "1em" }}
+                    >
+                        {`/${GRADE_SCALE}`}
+                    </span>
+                </span>
+            </span>
+        </div>
+    );
+}
+
+function AttackRow({
+    card,
+    attack,
+}: {
+    card: BoosterCard;
+    attack: BoosterCard["attacks"][number];
+}) {
+    const { t } = useTranslation();
+
+    return (
+        <div className="flex items-center gap-[0.35em]">
+            <span className="flex shrink-0 gap-[0.1em]">
+                {Array.from({ length: attack.cost }, (_, index) => (
+                    <EnergyDot key={index} color={card.subject.accent} />
+                ))}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-bold">
+                {t(attack.nameKey)}
+            </span>
+            <span className="shrink-0 font-black">{attack.damage}</span>
+        </div>
+    );
+}
+
+function PokemonCard({
+    card,
+    width,
+}: {
+    card: BoosterCard;
+    width: number;
+}) {
+    const { t } = useTranslation();
+    const full = isFullArt(card.treatment);
+    const gold = card.treatment === "sir";
+    const isEx = card.treatment === "ex";
+    const name = cardTitle(card, t);
+
+    const frame = gold
+        ? "linear-gradient(150deg, #fde68a, #d4a017 35%, #fff3c4 55%, #b8860b 80%)"
+        : isEx
+          ? "linear-gradient(150deg, #f3e2a9, #cfa640 45%, #f7edc4)"
+          : "linear-gradient(150deg, #f7e07a, #e8c33c 45%, #f9ecae)";
+
+    return (
+        <div
+            className={`poke-card relative overflow-hidden rounded-[0.9em] ${
+                card.treatment === "common" ? "" : "poke-holo-host"
+            }`}
+            style={{
+                width,
+                aspectRatio: "63 / 88",
+                fontSize: width / 20,
+                background: frame,
+                boxShadow:
+                    "0 0.5em 1.4em rgba(0,0,0,0.45), inset 0 0 0 0.06em rgba(0,0,0,0.35)",
+            }}
+        >
+            {full && <CardArt card={card} full />}
+
+            <div
+                className="absolute inset-[0.42em] flex flex-col overflow-hidden rounded-[0.55em]"
+                style={
+                    full
+                        ? { background: "transparent" }
+                        : {
+                              background: `linear-gradient(165deg, ${card.subject.light}, ${card.subject.accent})`,
+                              boxShadow: "inset 0 0 0 0.05em rgba(0,0,0,0.25)",
+                          }
+                }
+            >
+
+                <div
+                    className={`flex items-center gap-[0.3em] px-[0.4em] py-[0.25em] ${
+                        full ? "rounded-[0.3em] bg-black/50" : ""
+                    }`}
+                    style={full ? { margin: "0.3em" } : undefined}
+                >
+                    <div className="min-w-0 flex-1">
+                        <p
+                            className={`truncate text-[0.62em] font-bold uppercase tracking-wider ${
+                                full ? "text-white/70" : "text-black/60"
+                            }`}
+                        >
+                            {t("gradesPage.booster.stage")}
+                        </p>
+                        <p
+                            className={`flex items-baseline gap-[0.2em] truncate text-[1.05em] font-black leading-tight ${
+                                full ? "text-white" : "text-zinc-900"
+                            }`}
+                        >
+                            <span className="min-w-0 truncate">{name}</span>
+                            {isEx && (
+                                <span className="shrink-0 text-[0.85em] font-black italic text-amber-700">
+                                    {t("gradesPage.booster.ex")}
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    <span
+                        className={`shrink-0 font-black leading-none ${
+                            full ? "text-white" : "text-zinc-900"
+                        }`}
+                    >
+                        <span className="text-[0.6em] align-top">
+                            {t("gradesPage.booster.hp")}
+                        </span>
+                        <span className="text-[1.15em]">{card.hp}</span>
+                    </span>
+                    <EnergyDot color={card.subject.accent} />
+                </div>
+
+                {!full && (
+                    <>
+                        <div
+                            className="relative mx-[0.3em] overflow-hidden rounded-[0.15em]"
+                            style={{
+                                aspectRatio: "4 / 3",
+                                boxShadow:
+                                    "0 0 0 0.09em #d4b13c, 0 0 0 0.14em rgba(0,0,0,0.35)",
+                            }}
+                        >
+                            <CardArt card={card} />
+                        </div>
+                        <p className="mx-[0.3em] mt-[0.25em] truncate rounded-[0.1em] bg-black/25 px-[0.3em] py-[0.1em] text-[0.58em] font-medium text-white">
+                            {t("gradesPage.booster.speciesLine", {
+                                species: t(
+                                    `gradesPage.booster.subjects.${card.subject.id}.species`
+                                ),
+                                evaluation: card.grade.name,
+                            })}
+                        </p>
+                    </>
+                )}
+
+                <div
+                    className={`mx-[0.3em] mt-[0.3em] flex flex-col gap-[0.3em] rounded-[0.2em] px-[0.35em] py-[0.3em] text-[0.72em] ${
+                        full
+                            ? "bg-black/60 text-white"
+                            : "flex-1 justify-center bg-[#f7f1e0] text-zinc-900"
+                    }`}
+                    style={full ? { margin: "auto 0.3em 0.3em" } : undefined}
+                >
+                    {card.attacks.map((attack, index) => (
+                        <AttackRow key={index} card={card} attack={attack} />
+                    ))}
+
+                    <div
+                        className={`mt-[0.15em] flex items-center justify-between gap-[0.3em] border-t pt-[0.2em] text-[0.72em] ${
+                            full ? "border-white/25" : "border-black/20"
+                        }`}
+                    >
+                        <span className="truncate">
+                            {t("gradesPage.booster.weakness")}{" "}
+                            <span className="font-bold">
+                                {t("gradesPage.booster.weaknessValue", {
+                                    type: t(card.subject.weaknessKey),
+                                })}
+                            </span>
+                        </span>
+                        <span className="truncate">
+                            {t("gradesPage.booster.resistance")}{" "}
+                            <span className="font-bold">
+                                {t("gradesPage.booster.resistanceValue", {
+                                    type: t(card.subject.resistanceKey),
+                                })}
+                            </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-[0.15em]">
+                            {t("gradesPage.booster.retreat")}
+                            {Array.from(
+                                { length: card.retreat },
+                                (_, index) => (
+                                    <EnergyDot key={index} color="#d4d4d8" />
+                                )
+                            )}
+                        </span>
+                    </div>
+                </div>
+
+                <div
+                    className={`flex items-center justify-between gap-[0.3em] px-[0.45em] pb-[0.25em] pt-[0.2em] text-[0.5em] ${
+                        full ? "text-white/80" : "text-black/70"
+                    }`}
+                >
+                    <span className="truncate italic">
+                        {t("gradesPage.booster.illustrator")}
+                    </span>
+                    <span className="shrink-0 font-mono font-bold tracking-tight">
+                        {card.number} {RARITY_SYMBOL[card.treatment]}
+                    </span>
+                </div>
+            </div>
+
+            {card.treatment !== "common" && (
+                <>
+                    <span
+                        className={`poke-shine pointer-events-none absolute inset-0 rounded-[0.9em] ${
+                            gold ? "poke-shine-gold" : ""
+                        }`}
+                        style={{
+                            opacity:
+                                card.treatment === "uncommon"
+                                    ? 0.25
+                                    : card.treatment === "holo"
+                                      ? 0.5
+                                      : 0.75,
+                        }}
+                    />
+                    <span className="poke-glare pointer-events-none absolute inset-0 rounded-[0.9em]" />
+                </>
+            )}
+        </div>
+    );
+}
+
+function CardBack({ width }: { width: number }) {
+    const { t } = useTranslation();
+
+    return (
+        <div
+            className="relative"
+            style={
+                {
+                    width,
+                    fontSize: width / 20,
+                } as CSSProperties
+            }
+        >
+            <div
+                className="relative overflow-hidden rounded-[0.9em]"
+                style={{
+                    aspectRatio: "63 / 88",
+                    background:
+                        "linear-gradient(160deg, #1e3a8a 0%, #172554 45%, #0f172a 100%)",
+                    boxShadow:
+                        "0 0.5em 1.4em rgba(0,0,0,0.5), inset 0 0 0 0.06em rgba(255,255,255,0.15)",
+                }}
+            >
+                <span
+                    className="absolute inset-[0.4em] rounded-[0.6em]"
+                    style={{
+                        background:
+                            "repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 0.3em, transparent 0.3em 0.6em)",
+                        boxShadow: "inset 0 0 0 0.08em rgba(250,204,21,0.55)",
+                    }}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-[0.4em]">
+                    <span
+                        className="relative flex size-[4.2em] items-center justify-center rounded-full"
+                        style={{
+                            background:
+                                "conic-gradient(from 210deg, #f8fafc 0deg 180deg, #ef4444 180deg 360deg)",
+                            boxShadow:
+                                "0 0 0 0.18em #0f172a, 0 0.2em 0.6em rgba(0,0,0,0.6)",
+                        }}
+                    >
+                        <span className="size-[1.5em] rounded-full bg-white shadow-[0_0_0_0.16em_#0f172a]" />
+                    </span>
+                    <span className="text-[0.9em] font-black uppercase tracking-[0.35em] text-amber-300">
+                        {t("gradesPage.booster.cardBack")}
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const MotionCard = motion.create(Card);
+
+const POKE_CORNER = "border-amber-200/70";
+const POKE_CORNER_EMPTY = "border-zinc-600/70";
+const POKE_ICON = "text-amber-300 drop-shadow-[0_0_8px_rgba(252,211,77,0.9)]";
+const POKE_CTA =
+    "bg-gradient-to-b from-amber-200 to-amber-400 text-indigo-950 shadow-[0_1px_0_rgba(255,255,255,0.5)_inset,0_2px_6px_rgba(0,0,0,0.45)]";
+const POKE_DATE =
+    "bg-black/40 text-amber-100 shadow-[0_0_0_1px_rgba(252,211,77,0.25)_inset]";
+
+export function BoosterEntryCard({
+    count,
+    onOpen,
+}: {
+    count: number;
+    onOpen: () => void;
+}) {
+    const { t } = useTranslation();
+    const empty = count === 0;
+    const packs = Math.ceil(count / MAX_CARDS_PER_PACK);
+
+    return (
+        <MotionCard
+            layout
+            variants={fadeInIndexed}
+            custom={0}
+            initial="hidden"
+            animate="show"
+            exit="exit"
+            className={`reveal-card relative border-none bg-white p-4 shadow-md dark:bg-mauria-card h-full overflow-visible ${
+                empty
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer transition-transform duration-150 hover:-translate-y-0.5"
+            }`}
+            onClick={empty ? undefined : onOpen}
+        >
+            <div
+                className={`pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit] ${
+                    empty ? "poke-entry-empty" : "poke-entry-foil"
+                }`}
+            >
+                {CORNERS.map((c) => (
+                    <span
+                        key={c}
+                        className={`absolute size-2.5 ${c} ${empty ? POKE_CORNER_EMPTY : POKE_CORNER}`}
+                    />
+                ))}
+            </div>
+            <div className="relative flex items-center">
+                <div className="mr-4 w-20 items-center justify-center text-center">
+                    <PlayingCardsFan
+                        className={
+                            empty
+                                ? "mx-auto size-8 text-zinc-400"
+                                : `reveal-icon mx-auto size-8 ${POKE_ICON}`
+                        }
+                    />
+                    {!empty && (
+                        <div className="font-mono text-sm font-bold leading-5 tracking-[0.2em] text-amber-200">
+                            {t("gradesPage.booster.packCount", {
+                                count: packs,
+                            })}
+                        </div>
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 truncate text-lg font-medium text-white">
+                        {t(
+                            empty
+                                ? "gradesPage.booster.empty"
+                                : "gradesPage.booster.openPack"
+                        )}
+                    </div>
+                    <div className="flex h-5 items-center justify-between gap-2 text-sm text-zinc-500">
+                        {empty ? (
+                            <span className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-zinc-400">
+                                {t("gradesPage.booster.emptyHint")}
+                            </span>
+                        ) : (
+                            <>
+                                <span
+                                    className={`inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-[10px] font-extrabold uppercase leading-none tracking-wide ${POKE_CTA}`}
+                                >
+                                    <ChevronsRight className="size-3 shrink-0 animate-pulse" />
+                                    {t("gradesPage.booster.tapToOpen")}
+                                </span>
+                                <p
+                                    className={`inline-flex h-5 min-w-0 shrink items-center truncate rounded-full px-2 font-mono text-[11px] font-semibold uppercase leading-none tracking-wide ${POKE_DATE}`}
+                                >
+                                    <span className="truncate sm:hidden">
+                                        {t("gradesPage.booster.remainingShort", { count })}
+                                    </span>
+                                    <span className="hidden truncate sm:inline">
+                                        {t("gradesPage.booster.remaining", { count })}
+                                    </span>
+                                </p>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </MotionCard>
+    );
+}
+

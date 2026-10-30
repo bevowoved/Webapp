@@ -1,11 +1,6 @@
-import { ServerCrash } from "lucide-react";
+import { Loader2, ServerCrash, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-/**
- * Empty-state content for pages backed by Aurion when there's nothing cached
- * and Aurion is down: a spinner would lead nowhere, so say why instead.
- * Meant to be rendered inside the page's empty-state card.
- */
 export function AurionDownState({ message }: { message: string }) {
     const { t } = useTranslation();
 
@@ -21,3 +16,53 @@ export function AurionDownState({ message }: { message: string }) {
         </>
     );
 }
+
+export function EmptyListState({
+    busy,
+    aurionDown,
+    hasCachedItems,
+    cachedMessage,
+    icon: Icon,
+    emptyTitle,
+    emptyBody,
+    loadingHint,
+}: {
+    busy: boolean;
+    aurionDown: boolean;
+    hasCachedItems: boolean;
+    cachedMessage: string;
+    icon: LucideIcon;
+    emptyTitle: string;
+    emptyBody: string;
+    loadingHint?: string;
+}) {
+    const { t } = useTranslation();
+
+    return (
+        <div className="text-center py-12">
+            <div className="bg-mauria-card rounded-xl shadow-md p-8 max-w-md mx-auto">
+                {aurionDown && !hasCachedItems ? (
+                    <AurionDownState message={cachedMessage} />
+                ) : (
+                    <>
+                        <div className="w-16 h-16 bg-muted-foreground/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            {busy ? (
+                                <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                            ) : (
+                                <Icon className="w-8 h-8 text-muted-foreground" />
+                            )}
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">
+                            {busy ? t("common.loading") : emptyTitle}
+                        </h3>
+                        {busy && loadingHint && (
+                            <p className="text-xs text-muted-foreground">{loadingHint}</p>
+                        )}
+                        {!busy && <p className="text-muted-foreground">{emptyBody}</p>}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+

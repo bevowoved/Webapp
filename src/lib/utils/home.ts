@@ -1,46 +1,31 @@
 import { Lesson } from "@/types/aurion";
 import { PreparedLesson, HomeUpcoming } from "@/types/home";
 import i18n from "@/i18n";
-import {
-    addDays,
-    format,
-    isAfter,
-    isSameDay,
-    isWithinInterval,
-    startOfWeek,
-} from "date-fns";
+import { addDays, format, isAfter, isSameDay, isWithinInterval, startOfWeek } from "./date-time";
 
-// Some planning timestamps end with offsets like "+0200" (no colon).
-// Normalize to ISO8601 offset "+02:00" so Date parsing is reliable.
-const normalizeOffset = (iso: string) =>
-    iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+const normalizeOffset = (iso: string) => iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
 
 export const toDate = (s: string) => new Date(normalizeOffset(s));
 
-// Promotion-wide plannings squeeze a time range between the type and the
-// teacher, where the personal planning goes straight to the teacher.
 const timeRange = /^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/;
 
-// Aurion ne remplit pas toujours la ligne du nom de la matiere : le titre se
-// reduit alors au code de type ("DS selon planning\nDS_SURV"). On le passe par
-// le meme dictionnaire que le badge plutot que d'afficher le code brut.
+const scheduleNote = /(?:horaire\s+)?\btt\b\s*:/i;
+
 const TYPE_CODE = /^[A-Z0-9]+(?:_[A-Z0-9]+)+$/;
 
-/**
- * Aurion titles are fixed fields joined by newlines — room, free-text note,
- * course, type, (time range), teacher — and any of them can be blank. The
- * note is free text, so it carries newlines of its own and the fields that
- * follow it slide down: only the type, sitting right before the time range,
- * is a reliable anchor. Positions are therefore counted from that anchor
- * rather than from the top, which also keeps colles and the personal
- * planning — same fields, no time range — on the same code path.
- */
-export const parseFromTitle = (lesson: Lesson) => {
-    const lines = lesson.title.split("\n").map((l) => l.trim());
+export type ParsedTitle = {
+    courseTitle: string;
+    location: string;
+    type: string;
+    teacher: string;
+};
+
+export const parseFromTitle = (lesson: Lesson): ParsedTitle => {
+    const all = lesson.title.split("\n").map((l) => l.trim());
+    const lines = all.length > 1 && scheduleNote.test(all[all.length - 1]!) ? all.slice(0, -1) : all;
     const timeIndex = lines.findIndex((line) => timeRange.test(line));
     const typeIndex = timeIndex === -1 ? lines.length - 2 : timeIndex - 1;
 
-    // Not enough lines to hold the fields: a lesson the user created himself.
     if (typeIndex < 2) {
         const filled = lines.filter(Boolean);
         return {
@@ -52,162 +37,19 @@ export const parseFromTitle = (lesson: Lesson) => {
     }
 
     const course = lines[typeIndex - 1] ?? "";
-    const teacher = lines
-        .slice(typeIndex + 1)
-        .find((line) => line && !timeRange.test(line));
-
-    // The room normally sits on the first line, but Aurion sometimes pads
-    // the title with a leading newline and the room slides into the note
-    // block (ISEN exams: "\nSalle C854, IC2, 41 Bvd Vauban\nTT : …\n…").
-    // Everything before the course is then the room followed by its notes.
+    const teacher = lines.slice(typeIndex + 1).find((line) => line && !timeRange.test(line));
     const leading = lines.slice(0, typeIndex - 1).filter(Boolean);
     const location = leading[0] ?? "";
     const note = leading.slice(1);
 
     return {
-        // No course and no note happens (a workshop, a meeting); the caller
-        // falls back to the type rather than on the raw multi-line title.
-        // A lone type code means Aurion left the course name blank: show it
-        // through the type dictionary rather than the raw code.
-        courseTitle: course
-            ? TYPE_CODE.test(course)
-                ? formatLessonType(course)
-                : course
-            : note.join(" "),
+        courseTitle: course ? (TYPE_CODE.test(course) ? formatLessonType(course) : course) : note.join(" "),
         location,
         type: lines[typeIndex] || lesson.className || "",
         teacher: teacher ?? "",
     };
 };
 
-export const getHomeUpcoming = ({
-    lessons,
-}: {
-    lessons: Lesson[];
-}): HomeUpcoming => {
-    const now = new Date();
-
-    const enriched = lessons
-        .map((l) => ({ lesson: l, start: toDate(l.start), end: toDate(l.end) }))
-        .filter(
-            ({ start }) =>
-                isSameDay(start, now) || isSameDay(start, addDays(now, 1))
-        );
-
-    const current = enriched.find(({ start, end }) =>
-        isWithinInterval(now, { start, end })
-    );
-
-    const todaysUpcoming = enriched
-        .filter(({ start }) => isSameDay(start, now) && isAfter(start, now))
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-    const tomorrows = enriched
-        .filter(({ start }) => isSameDay(start, addDays(now, 1)))
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-    const toCourse = ({
-        lesson,
-        start,
-        end,
-    }: {
-        lesson: Lesson;
-        start: Date;
-        end: Date;
-    }): PreparedLesson => {
-        const { courseTitle, location, type, teacher } = parseFromTitle(lesson);
-        const time = `${format(start, "HH:mm")} - ${format(end, "HH:mm")}`;
-        return { courseTitle, time, location, type, details: lesson, teacher };
-    };
-
-    return {
-        current: current ? toCourse(current) : null,
-        today: todaysUpcoming.map(toCourse),
-        tomorrow: tomorrows.map(toCourse),
-    };
-};
-
-/**
- * The lesson happening now or, failing that, one that ended less than
- * `graceMinutes` ago (a task is often noted right after class), and the next
- * lesson of the same course. Null when there's no such lesson or no later
- * one of that course.
- */
-export const findNextLessonOfCurrentCourse = (
-    lessons: Lesson[],
-    now = new Date(),
-    graceMinutes = 10
-): { course: string; start: Date } | null => {
-    const timed = lessons.map((lesson) => ({
-        lesson,
-        start: toDate(lesson.start),
-        end: toDate(lesson.end),
-    }));
-    const graceStart = new Date(now.getTime() - graceMinutes * 60 * 1000);
-
-    const reference =
-        timed.find(({ start, end }) => start <= now && now < end) ??
-        timed
-            .filter(({ end }) => graceStart <= end && end <= now)
-            .sort((a, b) => b.end.getTime() - a.end.getTime())[0];
-    if (!reference) return null;
-
-    const courseOf = (lesson: Lesson) =>
-        formatLessonCourse(parseFromTitle(lesson).courseTitle);
-    const course = courseOf(reference.lesson);
-    if (!course) return null;
-    const key = course.toLowerCase();
-
-    const next = timed
-        .filter(
-            ({ lesson, start }) =>
-                start >= reference.end &&
-                courseOf(lesson).toLowerCase() === key
-        )
-        .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
-
-    return next ? { course, start: next.start } : null;
-};
-
-export type WidgetLesson = {
-    title: string;
-    type: string;
-    location: string;
-    time: string;
-    startMs: number;
-    endMs: number;
-};
-
-// Cours parses et tries envoyes au widget natif (MauriaPWA2). Le natif refait
-// le tri passe / en cours / a venir selon l'heure.
-//
-// On remonte jusqu'au lundi de la semaine courante, et pas seulement jusqu'a
-// maintenant : le widget "Semaine" dessine la grille complete, jours deja
-// passes inclus. Le widget "Prochains cours" ignore ces cours-la de lui-meme.
-export const buildWidgetLessons = (lessons: Lesson[]): WidgetLesson[] => {
-    const from = startOfWeek(new Date(), { weekStartsOn: 1 }).getTime();
-    return lessons
-        .map((l) => ({ lesson: l, start: toDate(l.start), end: toDate(l.end) }))
-        .filter(({ end }) => end.getTime() >= from)
-        .sort((a, b) => a.start.getTime() - b.start.getTime())
-        .map(({ lesson, start, end }) => {
-            const { courseTitle, location, type } = parseFromTitle(lesson);
-            return {
-                // Meme habillage que les cartes du planning : suffixe de
-                // semestre retire, matieres abregees ("FHS", "Maths") —
-                // sinon la cellule native tronque en "Formation...".
-                title: abbreviateSubjects(formatLessonCourse(courseTitle)),
-                type,
-                location: formatLessonLocation(location),
-                time: `${format(start, "HH:mm")} - ${format(end, "HH:mm")}`,
-                startMs: start.getTime(),
-                endMs: end.getTime(),
-            };
-        });
-};
-
-// The type codes met across Junia's plannings — every filière, not just the
-// prépa. Aurion is free to invent more, so an unknown code is shown as is.
 const lessonTypes = new Set([
     "COURS_TD",
     "CI",
@@ -242,71 +84,36 @@ const lessonTypes = new Set([
 
 export const formatLessonType = (lessonType: string) => {
     const code = lessonType.toUpperCase();
-    return lessonTypes.has(code)
-        ? i18n.t(`homePage.lessonTypes.${code}`)
-        : lessonType;
+    return lessonTypes.has(code) ? i18n.t(`homePage.lessonTypes.${code}`) : lessonType;
 };
 
-// Aurion spells civilities out in full ("Monsieur DUPONT"); neither the cards
-// nor the drawer have room for it.
 export const formatLessonTeacher = (teacher: string) =>
     teacher.replace(/\bMonsieur\b/gi, "M.").replace(/\bMadame\b/gi, "Mme");
 
 export const formatLessonLocation = (location: string) => {
-    // Aurion rooms read "A812 - Salle … - Campus …", ISEN exam rooms "Salle
-    // C854, IC2, 41 Bld Vauban": only the room itself fits in a cell, the
-    // drawer still shows the full label.
     const parts = location.split(",").map((part) => part.trim());
     let compact: string;
-    if (parts.length >= 2 && /^salle\s+/i.test(parts[0])) {
-        // ISEN's full form rebuilds in the compact style of every other
-        // room ("IC2 C854"), unless the room already carries its campus
-        // ("Salle ALG 201-202, ALG, …" → "ALG 201-202").
-        const room = parts[0].replace(/^salle\s+/i, "");
+    if (parts.length >= 2 && /^salle\s+/i.test(parts[0]!)) {
+        const room = parts[0]!.replace(/^salle\s+/i, "");
         const campus = parts[1];
-        compact =
-            campus && !room.toUpperCase().startsWith(campus.toUpperCase())
-                ? `${campus} ${room}`
-                : room;
+        compact = campus && !room.toUpperCase().startsWith(campus.toUpperCase()) ? `${campus} ${room}` : room;
     } else {
-        compact = location.split(" - ")[0].split(",")[0].trim();
+        compact = location.split(" - ")[0]!.split(",")[0]!.trim();
     }
-    // Aurion glues equipment counts to the room ("IC2 A815_2TAB- VP" =
-    // room A815 with 2 whiteboards): only the room stays in the cell.
-    // A digits-only suffix ("IC1_222", "Palais Rameau_104") is the room
-    // number itself, kept and spaced below.
     compact = compact.replace(/_\d+[A-Za-z]+.*$/, "");
-    // Aurion glues the campus and the room with an underscore ("IC1_222",
-    // "Palais Rameau_104"): a space reads better in a cell.
     return compact.replace(/_/g, " ");
 };
 
-// Aurion spells course names out in full ("MATHEMATIQUES", "PHYSIQUE-CHIMIE"),
-// which never fits a planning card. Accents are matched explicitly rather than
-// normalized away, so the rest of the title keeps its own.
 const subjectAbbreviations: Array<{ match: RegExp; key: string }> = [
-    {
-        match: /sciences?\s+industrielles?(?:\s+(?:pour|de)\s+l['’]ing[ée]nieurs?)?/gi,
-        key: "sii",
-    },
-    {
-        match: /formations?\s+humaines?\s+(?:et|&)\s+sociales?/gi,
-        key: "fhs",
-    },
-    {
-        match: /projets?\s+professionnels?\s+(?:et|&)\s+personnels?/gi,
-        key: "ppp",
-    },
-    {
-        match: /communications?\s+(?:et|&)\s+cultures?\s+g[ée]n[ée]rales?/gi,
-        key: "generalCulture",
-    },
+    { match: /sciences?\s+industrielles?(?:\s+(?:pour|de)\s+l['’]ing[ée]nieurs?)?/gi, key: "sii" },
+    { match: /formations?\s+humaines?\s+(?:et|&)\s+sociales?/gi, key: "fhs" },
+    { match: /projets?\s+professionnels?\s+(?:et|&)\s+personnels?/gi, key: "ppp" },
+    { match: /communications?\s+(?:et|&)\s+cultures?\s+g[ée]n[ée]rales?/gi, key: "generalCulture" },
     { match: /g[ée]opolitique\s+du\s+monde\s+actuel/gi, key: "geopolitics" },
     { match: /business\s+intelligence/gi, key: "businessIntelligence" },
     { match: /intelligences?\s+artificielles?/gi, key: "ai" },
     { match: /bases?\s+de\s+donn[ée]es/gi, key: "database" },
     { match: /math[ée]matiques?/gi, key: "maths" },
-    // Plurals matter: "Sciences Physiques" must not end up "Sciences Phys.s".
     { match: /sciences?\s+physiques?/gi, key: "physics" },
     { match: /physiques?(?:[\s-]+chimies?)?/gi, key: "physics" },
     { match: /informatiques?/gi, key: "computerScience" },
@@ -321,48 +128,134 @@ const subjectAbbreviations: Array<{ match: RegExp; key: string }> = [
     { match: /introductions?/gi, key: "intro" },
 ];
 
-// Each pattern is anchored on a word start, so a subject that happens to be
-// spelled inside a longer word is left alone ("Microélectronique" must not
-// turn into "MicroÉlec."). \b is ASCII-only and would not do here.
 const anchoredAbbreviations = subjectAbbreviations.map(({ match, key }) => ({
     match: new RegExp(`(^|[^\\p{L}])(?:${match.source})`, "giu"),
     key,
 }));
 
-/** Shorten the subject words of a course title, for phone-sized cards. */
 export const abbreviateSubjects = (title: string) =>
     anchoredAbbreviations.reduce(
-        (text, { match, key }) =>
-            text.replace(
-                match,
-                (_full, before: string) =>
-                    `${before}${i18n.t(`schedulePage.subjectsShort.${key}`)}`
-            ),
+        (text, { match, key }) => text.replace(match, (_full, before: string) => `${before}${i18n.t(`schedulePage.subjectsShort.${key}`)}`),
         title
     );
 
-// Aurion course titles trail the term they belong to ("MATHEMATIQUES - 1er
-// semestre"), which no card has room for. Only that qualifier is dropped:
-// other titles carry a meaningful second half ("Mechanics 1 - Statics").
 const termSuffix = /\s+-\s+\d*\s*(?:er|ère|e|ème|nd|nde)?\s*semestre\s*\d*$/i;
 
-/**
- * The course label as shown on a planning card. Only the term qualifier is
- * dropped — the card shows this in full and keeps `abbreviateSubjects` for
- * phone-sized cells.
- */
-export const formatLessonCourse = (courseTitle: string) =>
-    courseTitle.replace(termSuffix, "").trim();
+export const formatLessonCourse = (courseTitle: string) => courseTitle.replace(termSuffix, "").trim();
 
-/** Compact elapsed time since an ISO date: "<1 min", "25 min", "5 h 10 min", "30 h". */
 export function formatElapsed(since: string, now = Date.now()): string {
-    const minutes = Math.max(
-        0,
-        Math.floor((now - new Date(since).getTime()) / 60_000)
-    );
+    const minutes = Math.max(0, Math.floor((now - new Date(since).getTime()) / 60_000));
     if (minutes < 1) return "<1 min";
     if (minutes < 60) return `${minutes} min`;
     const hours = Math.floor(minutes / 60);
     if (hours >= 24) return `${hours} h`;
     return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
+
+export type LessonsDerived = {
+    parsed: Map<string, ParsedTitle>;
+    upcoming: HomeUpcoming;
+};
+
+type TimedLesson = { lesson: Lesson; start: Date; end: Date };
+
+const timedLesson = (lesson: Lesson): TimedLesson => ({ lesson, start: toDate(lesson.start), end: toDate(lesson.end) });
+
+const lessonTime = (start: Date, end: Date): string => `${format(start, "HH:mm")} - ${format(end, "HH:mm")}`;
+
+const courseOf = (lesson: Lesson): string => formatLessonCourse(parseFromTitle(lesson).courseTitle);
+
+const toCourse = ({ lesson, start, end }: TimedLesson): PreparedLesson => {
+    const { courseTitle, location, type, teacher } = parseFromTitle(lesson);
+    return { courseTitle, time: lessonTime(start, end), location, type, details: lesson, teacher };
+};
+
+const parsedCache = new WeakMap<Lesson[], Map<string, ParsedTitle>>();
+const upcomingCache = new WeakMap<Lesson[], HomeUpcoming>();
+
+export function parseLessons(lessons: Lesson[]): Map<string, ParsedTitle> {
+    const hit = parsedCache.get(lessons);
+    if (hit !== undefined) return hit;
+    const map = new Map<string, ParsedTitle>();
+    for (const lesson of lessons) map.set(lesson.id, parseFromTitle(lesson));
+    parsedCache.set(lessons, map);
+    return map;
+}
+
+export const getHomeUpcoming = ({ lessons }: { lessons: Lesson[] }): HomeUpcoming => {
+    const hit = upcomingCache.get(lessons);
+    if (hit !== undefined) return hit;
+
+    const now = new Date();
+    const tomorrow = addDays(now, 1);
+    const timed = lessons.map(timedLesson);
+    const enriched = timed.filter(({ start }) => isSameDay(start, now) || isSameDay(start, tomorrow));
+    const current = enriched.find(({ start, end }) => isWithinInterval(now, { start, end }));
+    const byStart = (a: TimedLesson, b: TimedLesson) => a.start.getTime() - b.start.getTime();
+
+    const result: HomeUpcoming = {
+        current: current ? toCourse(current) : null,
+        today: enriched.filter(({ start }) => isSameDay(start, now) && isAfter(start, now)).sort(byStart).map(toCourse),
+        tomorrow: enriched.filter(({ start }) => isSameDay(start, tomorrow)).sort(byStart).map(toCourse),
+    };
+    upcomingCache.set(lessons, result);
+    return result;
+};
+
+export const findNextLessonOfCurrentCourse = (
+    lessons: Lesson[],
+    now = new Date(),
+    graceMinutes = 10
+): { course: string; start: Date } | null => {
+    const timed = lessons.map(timedLesson);
+    const graceStart = new Date(now.getTime() - graceMinutes * 60 * 1000);
+
+    const reference =
+        timed.find(({ start, end }) => start <= now && now < end) ??
+        timed.filter(({ end }) => graceStart <= end && end <= now).sort((a, b) => b.end.getTime() - a.end.getTime())[0];
+    if (!reference) return null;
+
+    const course = courseOf(reference.lesson);
+    if (!course) return null;
+    const key = course.toLowerCase();
+
+    const next = timed
+        .filter(({ lesson, start }) => start >= reference.end && courseOf(lesson).toLowerCase() === key)
+        .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
+
+    return next ? { course, start: next.start } : null;
+};
+
+export type WidgetLesson = {
+    title: string;
+    type: string;
+    location: string;
+    time: string;
+    startMs: number;
+    endMs: number;
+};
+
+const widgetCache = new WeakMap<Lesson[], WidgetLesson[]>();
+
+export const buildWidgetLessons = (lessons: Lesson[]): WidgetLesson[] => {
+    const hit = widgetCache.get(lessons);
+    if (hit !== undefined) return hit;
+    const from = startOfWeek(new Date(), { weekStartsOn: 1 }).getTime();
+    const out = lessons
+        .map(timedLesson)
+        .filter(({ end }) => end.getTime() >= from)
+        .sort((a, b) => a.start.getTime() - b.start.getTime())
+        .map(({ lesson, start, end }) => {
+            const { courseTitle, location, type } = parseFromTitle(lesson);
+            return {
+                title: abbreviateSubjects(formatLessonCourse(courseTitle)),
+                type,
+                location: formatLessonLocation(location),
+                time: lessonTime(start, end),
+                startMs: start.getTime(),
+                endMs: end.getTime(),
+            };
+        });
+    widgetCache.set(lessons, out);
+    return out;
+};

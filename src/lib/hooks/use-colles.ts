@@ -1,78 +1,108 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { fetchGrades, getSession } from "@/lib/api/aurion";
-import { fetchColleGroup } from "@/lib/api/colles";
+import { fetchAbsences, fetchDocuments, fetchGrades, fetchPlanning, getSession } from "@/lib/api/aurion";
+import { fetchColleGroup, getDynamicStaleTime } from "@/lib/api/helper";
 import { detectStudentClass, isCpgClass } from "@/lib/utils/grades";
 import { buildCollesLessons } from "@/lib/utils/colles";
 import { resolveDsLessons } from "@/lib/utils/ds";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
-import { Grade, Lesson } from "@/types/aurion";
+import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
+import { Absence, DocumentsResult, Grade, Lesson } from "@/types/aurion";
 
-/**
- * The student's khôlles class/group, looked up server-side from their email
- * (API-v2 resolves it, the roster stays there). Shared by the khôlles and the
- * DS replacement so the lookup happens once.
- */
+export const EMPTY_LESSONS: Lesson[] = Object.freeze([]) as unknown as Lesson[];
+export const EMPTY_GRADES: Grade[] = Object.freeze([]) as unknown as Grade[];
+export const EMPTY_ABSENCES: Absence[] = Object.freeze([]) as unknown as Absence[];
+
+const DAY_MS = 1000 * 60 * 60 * 24;
+const DEFAULT_STALE_MS = 5 * 60 * 1000;
+const DOCUMENTS_STALE_MS = 10 * 60 * 1000;
+
+const aurionOptions = <T>(key: string, path: string, fetch: () => Promise<{ success?: boolean; data?: T[] } | null>, empty: T[], enabled: boolean) =>
+    queryOptions({
+        queryKey: [key],
+        queryFn: async (): Promise<T[]> => {
+            const res = await fetch();
+            if (!res?.success) throw new Error(`Failed to fetch ${key}`);
+            return res.data ?? empty;
+        },
+        enabled,
+        staleTime: (query) => getDynamicStaleTime(path, DEFAULT_STALE_MS, query.state.dataUpdatedAt),
+        gcTime: DAY_MS,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
+    });
+
+export const planningQueryOptions = (enabled = true) =>
+    queryOptions({
+        ...aurionOptions("planning", "/aurion/planning", fetchPlanning, EMPTY_LESSONS, enabled),
+        placeholderData: (previousData: Lesson[] | undefined) => previousData ?? EMPTY_LESSONS,
+    });
+
+export const gradesQueryOptions = (enabled = true) =>
+    queryOptions({
+        ...aurionOptions("grades", "/aurion/grades", fetchGrades, EMPTY_GRADES, enabled),
+        placeholderData: (previousData: Grade[] | undefined) => previousData ?? EMPTY_GRADES,
+    });
+
+export const absencesQueryOptions = (enabled = true) =>
+    queryOptions({
+        ...aurionOptions("absences", "/aurion/absences", fetchAbsences, EMPTY_ABSENCES, enabled),
+        placeholderData: (previousData: Absence[] | undefined) => previousData ?? EMPTY_ABSENCES,
+    });
+
+export const documentsQueryOptions = (enabled = true) =>
+    queryOptions({
+        queryKey: ["documents"],
+        queryFn: async (): Promise<DocumentsResult> => {
+            const res = await fetchDocuments();
+            if (!res?.success || !res.data) throw new Error("Failed to fetch documents");
+            return res.data;
+        },
+        enabled,
+        staleTime: (query) => getDynamicStaleTime("/aurion/documents", DOCUMENTS_STALE_MS, query.state.dataUpdatedAt),
+        gcTime: DAY_MS,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
+        placeholderData: (previousData: DocumentsResult | undefined) => previousData,
+    });
+
+export function usePlanning(): Lesson[] {
+    const { isWarming } = useAurionWarm();
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
+    const { data = EMPTY_LESSONS } = useQuery(planningQueryOptions(!isWarming && !aurionDown));
+    return data;
+}
+
 function useColleGroup() {
     const { isWarming } = useAurionWarm();
-
-    // Whether the student is CPG1/CPG2 is only known for sure from their
-    // Aurion grade codes (detectStudentClass) — this same query backs the
-    // grades page, so it's usually already cached. It gates how loosely the
-    // server is allowed to match khôlles by name (see fetchColleGroup).
-    const { data: grades = [] } = useQuery<Grade[]>({
-        queryKey: ["grades"],
-        queryFn: async () => {
-            const res = await fetchGrades();
-            if (!res?.success) throw new Error("Failed to fetch grades");
-            return res.data ?? [];
-        },
-        enabled: !isWarming,
-        staleTime: 1000 * 60 * 5,
-        gcTime: 1000 * 60 * 60 * 24,
-    });
-    // CIR classes are also detected from grade codes: only actual CPG
-    // classes may loosen the server-side khôlle matching.
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
+    const { data: grades = EMPTY_GRADES } = useQuery(gradesQueryOptions(!isWarming && !aurionDown));
     const confirmedCpg = isCpgClass(detectStudentClass(grades));
-
     const email = getSession()?.email;
-    const { data } = useQuery({
-        queryKey: ["colles-group", email, confirmedCpg],
-        queryFn: () => (email ? fetchColleGroup(email, confirmedCpg) : null),
-        staleTime: 1000 * 60 * 60 * 24, // a student's class doesn't change daily
-        gcTime: 1000 * 60 * 60 * 24,
-    });
-
+    const { data } = useQuery(
+        queryOptions({
+            queryKey: ["colles-group", email, confirmedCpg],
+            queryFn: () => (email ? fetchColleGroup(email, confirmedCpg) : null),
+            staleTime: DAY_MS,
+            gcTime: DAY_MS,
+            refetchIntervalInBackground: false,
+            refetchOnWindowFocus: false,
+        })
+    );
     return data ?? null;
 }
 
-/**
- * The student's khôlles as planning lessons, shared by the planning and the
- * home page. Classes whose colles schedule is known (MP2I, MPSI, PSI and MPI)
- * get theirs; everyone else gets an empty list.
- */
 export function useColles(): Lesson[] {
     const { i18n } = useTranslation();
     const match = useColleGroup();
-
-    return useMemo(
-        () => buildCollesLessons(match?.class, match?.group),
-        // The lesson titles are translated: rebuild when the language changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [match?.class, match?.group, i18n.language]
-    );
+    return useMemo(() => {
+        void i18n.language;
+        return buildCollesLessons(match?.class, match?.group);
+    }, [match?.class, match?.group, i18n.language]);
 }
 
-/**
- * The Aurion planning with CPG2 MPI/PSI's generic "DS selon planning" swapped
- * for the real DS (see resolveDsLessons). Untouched for everyone else.
- */
 export function useResolvedPlanning(lessons: Lesson[]): Lesson[] {
     const match = useColleGroup();
-
-    return useMemo(
-        () => resolveDsLessons(lessons, match?.class),
-        [lessons, match?.class]
-    );
+    return useMemo(() => resolveDsLessons(lessons, match?.class), [lessons, match?.class]);
 }

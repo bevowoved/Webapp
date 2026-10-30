@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { isWeekend } from "date-fns";
+import { isWeekend } from "@/lib/utils/date-time";
 import {
     Apple,
     Beef,
@@ -33,7 +33,7 @@ import {
     DrawerHeader,
     DrawerTitle,
 } from "@/components/ui/drawer";
-import { fetchCastelRuMenu, fetchDailyMenu } from "@/lib/api/lacatho";
+import { fetchCastelRuMenu, fetchDailyMenu } from "@/lib/api/helper";
 import { RestaurantMenu } from "@/types/data";
 import { RESTAURANT_CAMPUSES, useCampus } from "@/lib/utils/campus";
 import { useRestaurantMenuEnabled } from "@/lib/utils/restaurant-menu";
@@ -43,11 +43,6 @@ import { fadeIn, staggerGroup } from "@/lib/motion";
 const containerVariants = staggerGroup;
 const itemVariants = fadeIn;
 
-// food-corner : fast-food (nuggets, samoussas, frites)
-// globe-trotter : cuisine du monde (couscous…)
-// green : healthy (purée, poulet, poisson, légumes)
-// tradi : pâtes sauce au choix
-// sandwicherie : sandwichs / ciabattas
 const RESTAURANT_ICONS: Record<string, LucideIcon> = {
     "food-corner": Drumstick,
     "globe-trotter": Globe,
@@ -56,7 +51,6 @@ const RESTAURANT_ICONS: Record<string, LucideIcon> = {
     sandwicherie: Sandwich,
 };
 
-// Icône par type de section du menu (entrées, plat, dessert…).
 const SECTION_ICON_KEYWORDS: Array<[string, LucideIcon]> = [
     ["salade", Salad],
     ["crudite", Salad],
@@ -115,21 +109,17 @@ export function RestaurantsSection() {
         queryFn:
             campus === "chateauroux" ? fetchCastelRuMenu : fetchDailyMenu,
         enabled: menuEnabled && hasRestaurant,
-        staleTime: 1000 * 60 * 30, // 30 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
+        staleTime: 1000 * 60 * 30, 
+        gcTime: 1000 * 60 * 60 * 24, 
         placeholderData: (previousData) => previousData,
     });
 
     const [selected, setSelected] = useState<RestaurantMenu | null>(null);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-    // Désactivé depuis les réglages, campus sans RU couvert par l'app
-    // (Bordeaux), API pas encore à jour / injoignable, ou week-end : le RU ne
-    // sert pas de menu du jour le samedi ni le dimanche.
     if (!menuEnabled || !hasRestaurant || isWeekend(new Date()) || !data) {
         return null;
     }
-    // Lien vers la source du menu (PDF pour Lille, page Crous pour Châteauroux).
     const sourceLabel =
         campus === "chateauroux"
             ? t("homePage.restaurants.openCastelRu")

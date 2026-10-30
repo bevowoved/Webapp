@@ -10,12 +10,6 @@ import {
 
 export type CarouselItem = { value: string | null; label: string };
 
-/**
- * Horizontal chip picker. Native CSS scroll-snap does the snapping (momentum,
- * flicks, release all handled by the browser); JS only (a) centres the selected
- * chip once on mount and (b) adopts whichever chip ends up centred after a
- * user scroll settles. No programmatic-vs-user scroll feedback loop.
- */
 export function FilterCarousel({
     items,
     selected,
@@ -44,7 +38,6 @@ export function FilterCarousel({
         });
     }, []);
 
-    // Half-width padding on both ends so the first/last chip can reach centre.
     useLayoutEffect(() => {
         const el = containerRef.current;
         if (!el) return;
@@ -55,16 +48,12 @@ export function FilterCarousel({
         return () => ro.disconnect();
     }, []);
 
-    // Centre the selected chip once, as soon as the padding is laid out.
     useEffect(() => {
         if (sidePadding <= 0 || didInitRef.current) return;
         didInitRef.current = true;
         centerIndex(selectedIndex, "auto");
     }, [sidePadding, selectedIndex, centerIndex]);
 
-    // Smoothly re-centre whenever the selection changes. Runs *after* the
-    // commit (and on the next frame) so the scroll animation starts on a
-    // settled DOM — otherwise the very first change would land instantly.
     const prevSelectedRef = useRef(selected);
     useEffect(() => {
         if (prevSelectedRef.current === selected) return;
@@ -76,7 +65,6 @@ export function FilterCarousel({
         return () => cancelAnimationFrame(id);
     }, [selected, selectedIndex, centerIndex]);
 
-    // After a user scroll settles, adopt the chip closest to the centre.
     const handleScroll = useCallback(() => {
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
         idleTimerRef.current = setTimeout(() => {
@@ -109,7 +97,6 @@ export function FilterCarousel({
         []
     );
 
-    // Keep horizontal drags from bubbling to the pull-to-refresh handler.
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
@@ -164,8 +151,6 @@ export function FilterCarousel({
                             aria-pressed={isSelected}
                             onClick={() => {
                                 if (isSelected) {
-                                    // Selection won't change → re-centre here;
-                                    // otherwise the effect above handles it.
                                     requestAnimationFrame(() =>
                                         centerIndex(idx, "smooth")
                                     );
@@ -173,8 +158,6 @@ export function FilterCarousel({
                                     onSelect(item.value);
                                 }
                             }}
-                            // `border` on both states keeps the width identical
-                            // when the variant flips, so chips never shift.
                             className={cn(
                                 "shrink-0 snap-center border",
                                 isSelected && "border-transparent"

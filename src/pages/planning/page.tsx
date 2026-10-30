@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import FullCalendar from "@fullcalendar/react";
-import FrLocale from "@fullcalendar/core/locales/fr";
-import EsLocale from "@fullcalendar/core/locales/es";
 import { ArrowLeft, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
-import { fetchPlanning } from "@/lib/api/aurion";
 import { useQuery } from "@tanstack/react-query";
 import { fadeIn, staggerGroup } from "@/lib/motion";
-import "./planning.css";
 
 import { PullToRefresh } from "@/components/pull-to-refresh";
-import { PlanningCalendar } from "@/components/planning-calendar";
-import { Lesson } from "@/types/aurion";
+import {
+    PlanningCalendar,
+    type PlanningCalendarHandle,
+} from "@/components/planning-calendar";
 import { parseFromTitle } from "@/lib/utils/home";
 import {
     DrawerUserEvent,
@@ -27,18 +24,18 @@ import { UserEvent } from "@/types/data";
 import { PreparedLesson } from "@/types/home";
 import { DrawerPlanningContent } from "@/components/drawer-planning-content";
 import { FreeRoomsView } from "./free-rooms-view";
-import { format } from "date-fns";
-import { getDateLocale } from "@/lib/utils/translations";
+import { addMinutes, format, getDateLocale } from "@/lib/utils/date-time";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import { exportCalendar } from "@/lib/utils/exportCalendar";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
-import { useColles, useResolvedPlanning } from "@/lib/hooks/use-colles";
+import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
+import { EMPTY_LESSONS, planningQueryOptions, useColles, useResolvedPlanning } from "@/lib/hooks/use-colles";
 import { FREE_ROOMS_CAMPUSES, useCampus } from "@/lib/utils/campus";
 import { applyExtraTime, useExtraTimeEnabled } from "@/lib/utils/extra-time";
 
 export function PlanningPage() {
-    const calendarRef = useRef<FullCalendar>(null);
+    const calendarRef = useRef<PlanningCalendarHandle>(null);
     const { t, i18n } = useTranslation();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [eventInfo, setEventInfo] = useState<PreparedLesson | null>(null);
@@ -60,63 +57,29 @@ export function PlanningPage() {
     );
     const [view, setView] = useState<"calendar" | "freeRooms">("calendar");
     const { isWarming } = useAurionWarm();
-    // Châteauroux has no findmyroom buildings: hide the free-rooms button.
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
     const showFreeRooms = FREE_ROOMS_CAMPUSES.includes(useCampus());
 
     const colles = useColles();
 
-    useEffect(() => {
-        const handler = (lng: string) => {
-            const fcLocale =
-                lng === "fr" ? FrLocale : lng === "es" ? EsLocale : undefined;
-            calendarRef.current?.getApi().setOption("locale", fcLocale);
-        };
-        i18n.on("languageChanged", handler);
-        return () => {
-            i18n.off("languageChanged", handler);
-        };
-    }, [i18n]);
-
     const {
-        data: lessons = [],
+        data: lessons = EMPTY_LESSONS,
         refetch,
         isLoading,
-        isFetching,
         dataUpdatedAt,
-    } = useQuery<Lesson[], Error>({
-        queryKey: ["planning"],
-        queryFn: async (): Promise<Lesson[]> => {
-            const res = await fetchPlanning();
-            // Throw (don't return []) on failure so React Query keeps the
-            // cached data instead of wiping it — e.g. a failed
-            // refetch-on-focus after the app was backgrounded.
-            if (!res?.success) {
-                throw new Error("Failed to fetch planning");
-            }
-            return res.data ?? [];
-        },
-        enabled: !isWarming,
-        staleTime: 1000 * 60 * 5, // 5 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
-        refetchOnWindowFocus: true, // refresh background si focus fenêtre
-        placeholderData: (previousData) => previousData,
-    });
+    } = useQuery(planningQueryOptions(!isWarming && !aurionDown));
 
     const resolvedLessons = useResolvedPlanning(lessons);
     const extraTimeEnabled = useExtraTimeEnabled();
 
-    // "Tiers temps": only the calendar shows the stretched DS, the raw
-    // planning stays what Aurion (and the export) says.
     const shownLessons = useMemo(
         () => applyExtraTime(resolvedLessons, extraTimeEnabled),
         [resolvedLessons, extraTimeEnabled]
     );
 
-    const isBusy = isWarming || isLoading || isFetching;
+    const isBusy = (isWarming && lessons.length === 0) || isLoading;
 
-    const handleRefresh = () => {
-        void refetch();
-    };
+    const handleRefresh = () => refetch();
 
     const refreshUserEvents = useCallback(() => {
         setUserEvents(getUserEventsFromLocalStorage());
@@ -128,8 +91,6 @@ export function PlanningPage() {
         setFormOpen(true);
     };
 
-    // Read from the shown event rather than looked up, so the actions stay
-    // put while the drawer closes on an event that was just deleted.
     const isUserEventShown = eventInfo?.details.className === "est-perso";
     const selectedUserEvent = eventInfo
         ? userEvents.find((ue) => ue.id === eventInfo.details.id)
@@ -140,10 +101,6 @@ export function PlanningPage() {
         setEditedEvent(selectedUserEvent);
         setFormSlot(null);
         setDrawerOpen(false);
-        // Editing swaps the detail drawer for the form: the form only opens
-        // once the detail drawer is done closing, two drawers can't overlap.
-        // Timed on vaul's own transition, its onAnimationEnd only fires for
-        // drags and outside clicks, never for a close driven by `open`.
         editTimeoutRef.current = window.setTimeout(() => {
             editTimeoutRef.current = null;
             setFormOpen(true);
@@ -233,24 +190,17 @@ export function PlanningPage() {
                     >
                         <PlanningCalendar
                             ref={calendarRef}
-                            eventSources={[shownLessons, userEvents, colles]}
-                            onSelect={(info) => {
-                                info.view.calendar.unselect();
-                                // A long press picks a single 30 min slot:
-                                // an hour is the likelier intent.
-                                const end =
-                                    info.end.getTime() - info.start.getTime() <=
-                                    30 * 60 * 1000
-                                        ? new Date(
-                                              info.start.getTime() +
-                                                  60 * 60 * 1000
-                                          )
-                                        : info.end;
-                                openEventForm({ start: info.start, end });
+                            lessons={[...shownLessons, ...userEvents, ...colles]}
+                            onSelect={({ start, end }) => {
+                                const span = end.getTime() - start.getTime();
+                                openEventForm({
+                                    start,
+                                    end: span <= 30 * 60 * 1000 ? addMinutes(start, 60) : end,
+                                });
                             }}
-                            onEventClick={(info) => {
+                            onEventClick={({ event }) => {
                                 const userEvent = userEvents.find(
-                                    (ue) => ue.id === info.event.id
+                                    (ue) => ue.id === event.id
                                 );
                                 if (userEvent) {
                                     setEventInfo({
@@ -268,20 +218,18 @@ export function PlanningPage() {
                                     return;
                                 }
 
-                                const event = info.event.toJSON();
-
                                 const {
                                     courseTitle,
                                     location,
                                     type,
                                     teacher,
-                                } = parseFromTitle(event as Lesson);
+                                } = parseFromTitle(event.toJSON());
                                 const mixedEvent = {
                                     courseTitle,
                                     location,
                                     type,
                                     teacher,
-                                    details: event,
+                                    details: event.toJSON(),
                                 } as unknown as PreparedLesson;
 
                                 setEventInfo(mixedEvent);

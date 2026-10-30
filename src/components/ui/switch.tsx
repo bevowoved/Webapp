@@ -1,27 +1,53 @@
 import * as React from "react";
-import * as SwitchPrimitives from "@radix-ui/react-switch";
 
 import { cn } from "@/lib/utils/cn";
 
-const Switch = React.forwardRef<
-    React.ElementRef<typeof SwitchPrimitives.Root>,
-    React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
->(({ className, ...props }, ref) => (
-    <SwitchPrimitives.Root
-        className={cn(
-            "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
-            className
-        )}
-        {...props}
-        ref={ref}
-    >
-        <SwitchPrimitives.Thumb
+type SwitchProps = Omit<React.ComponentProps<"button">, "onChange"> & {
+    checked?: boolean;
+    defaultChecked?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+};
+
+function Switch({
+    className,
+    checked,
+    defaultChecked,
+    onCheckedChange,
+    disabled,
+    onClick,
+    ref,
+    ...props
+}: SwitchProps) {
+    const [internal, setInternal] = React.useState(defaultChecked ?? false);
+    const isControlled = checked !== undefined;
+    const value = isControlled ? checked : internal;
+
+    return (
+        <button
+            ref={ref}
+            type="button"
+            role="switch"
+            aria-checked={value}
+            data-state={value ? "checked" : "unchecked"}
+            disabled={disabled}
+            onClick={(e) => {
+                onClick?.(e);
+                if (disabled) return;
+                if (!isControlled) setInternal(!value);
+                onCheckedChange?.(!value);
+            }}
             className={cn(
-                "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0"
+                "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+                className
             )}
-        />
-    </SwitchPrimitives.Root>
-));
-Switch.displayName = SwitchPrimitives.Root.displayName;
+            {...props}
+        >
+            <span
+                data-state={value ? "checked" : "unchecked"}
+                className="pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0"
+            />
+        </button>
+    );
+}
 
 export { Switch };

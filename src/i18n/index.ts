@@ -1,29 +1,64 @@
-import i18n from "i18next";
+import i18n, { type BackendModule, type LanguageDetectorModule } from "i18next";
 import { initReactI18next } from "react-i18next";
-import LanguageDetector from "i18next-browser-languagedetector";
 
-// On importe directement les fichiers statiques
 import fr from "@/locales/fr-FR.json";
-import en from "@/locales/en-US.json";
-import es from "@/locales/es-ES.json";
+import { getFromStorage } from "@/lib/utils/storage";
+
+const KEY = "mauria-locale";
+const SUPPORTED = ["fr", "en", "es"] as const;
+
+type Supported = (typeof SUPPORTED)[number];
+
+const LOADERS: Partial<Record<Supported, () => Promise<{ default: object }>>> = {
+    en: () => import("@/locales/en-US.json"),
+    es: () => import("@/locales/es-ES.json"),
+};
+
+const normalize = (lng?: string | null): Supported => {
+    const code = (lng ?? "").toLowerCase();
+    return code.startsWith("en") ? "en" : code.startsWith("es") ? "es" : "fr";
+};
+
+const detector: LanguageDetectorModule = {
+    type: "languageDetector",
+    detect: () => {
+        const stored = getFromStorage(KEY);
+        if (stored) return normalize(stored);
+        return typeof navigator !== "undefined" ? normalize(navigator.language) : "fr";
+    },
+    cacheUserLanguage: (lng) => {
+        if (typeof document !== "undefined") document.documentElement.lang = normalize(lng);
+    },
+};
+
+const backend: BackendModule = {
+    type: "backend",
+    init: () => undefined,
+    read: (language, _namespace, callback) => {
+        const loader = LOADERS[normalize(language)];
+        if (!loader) {
+            callback(null, {});
+            return;
+        }
+        loader().then(
+            (mod) => callback(null, mod.default ?? mod),
+            (err) => callback(err as Error, false)
+        );
+    },
+};
 
 void i18n
-  .use(LanguageDetector)
-  .use(initReactI18next)
-  .init({
-    fallbackLng: "fr",
-    supportedLngs: ["fr", "en", "es"],
-    resources: {
-      fr: { translation: fr },
-      en: { translation: en },
-      es: { translation: es }
-    },
-    interpolation: { escapeValue: false },
-    react: { useSuspense: false },
-    detection: {
-      order: ["querystring", "localStorage", "navigator"],
-      caches: ["localStorage"]
-    }
-  });
+    .use(detector)
+    .use(backend)
+    .use(initReactI18next)
+    .init({
+        fallbackLng: "fr",
+        supportedLngs: [...SUPPORTED],
+        partialBundledLanguages: true,
+        resources: { fr: { translation: fr } },
+        interpolation: { escapeValue: false },
+        react: { useSuspense: false },
+    });
 
 export default i18n;
+

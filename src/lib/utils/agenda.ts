@@ -1,34 +1,42 @@
 import { TaskData } from "@/types/data";
-import { getFromStorage, saveToStorage } from "./storage";
+import { toDate } from "./date-time";
+import { readJsonCached, saveToStorage } from "./storage";
+
+const TASKS_KEY = "tasks";
 
 type StoredTask = Omit<TaskData, "date"> & { date: string };
 
-const readTasks = () =>
-    JSON.parse(getFromStorage("tasks") ?? "[]") as StoredTask[];
+const parseDate = (value: string): Date => {
+    const date = toDate(value);
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
+};
 
-const writeTasks = (tasks: StoredTask[]) =>
-    saveToStorage("tasks", JSON.stringify(tasks));
-
-/** Add the task, or replace the stored one carrying the same id. */
-export function saveTaskToLocalStorage({ task }: { task: TaskData }) {
-    const stored: StoredTask = {
-        ...task,
-        date: new Date(task.date).toISOString(),
-    };
-    const existingTasks = readTasks();
-    const index = existingTasks.findIndex((t) => t.id === task.id);
-    if (index === -1) {
-        existingTasks.push(stored);
-    } else {
-        existingTasks[index] = stored;
+const parseTasks = (raw: string): TaskData[] => {
+    if (!raw) return [];
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return (parsed as StoredTask[])
+            .map((task) => ({ ...task, date: parseDate(task.date) }))
+            .toSorted((a, b) => a.date.getTime() - b.date.getTime());
+    } catch {
+        return [];
     }
-    writeTasks(existingTasks);
+};
+
+const readTasks = (): TaskData[] => readJsonCached(TASKS_KEY, parseTasks);
+
+const writeTasks = (tasks: TaskData[]) =>
+    saveToStorage(TASKS_KEY, JSON.stringify(tasks.map((t) => ({ ...t, date: t.date.toISOString() }))));
+
+export function saveTaskToLocalStorage({ task }: { task: TaskData }) {
+    const existing = readTasks();
+    const index = existing.findIndex((t) => t.id === task.id);
+    writeTasks(index === -1 ? [...existing, task] : existing.map((t, i) => (i === index ? task : t)));
 }
 
 export function getTasksFromLocalStorage(): TaskData[] {
-    return readTasks()
-        .map((task) => ({ ...task, date: new Date(task.date) }))
-        .sort((a, b) => a.date.getTime() - b.date.getTime());
+    return readTasks();
 }
 
 export function removeTaskFromLocalStorage({ taskId }: { taskId: string }) {

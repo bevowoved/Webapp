@@ -1,6 +1,5 @@
 import React from "react";
 import { Button } from "./ui/button";
-import * as Sentry from "@sentry/react";
 import { useTranslation } from "react-i18next";
 
 type Props = {
@@ -29,14 +28,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
         this.state = { hasError: false };
     }
 
-    static getDerivedStateFromError(error: unknown) {
-        console.log("ErrorBoundary getDerivedStateFromError", error);
+    static getDerivedStateFromError() {
         return { hasError: true };
     }
 
-    componentDidCatch(error: unknown, errorInfo: unknown) {
-        console.error("ErrorBoundary caught an error", error, errorInfo);
-        Sentry.captureException(error);
+    componentDidCatch(error: unknown) {
+        void import("@sentry/react").then((Sentry) =>
+            Sentry.captureException(error)
+        );
     }
 
     render() {

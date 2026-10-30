@@ -1,5 +1,5 @@
 import { ComponentProps, useEffect, useRef, useState, type ReactNode } from "react";
-import { addDays, format, isToday, isTomorrow, startOfDay } from "date-fns";
+import { addDays, format, isToday, isTomorrow, startOfDay } from "@/lib/utils/date-time";
 import { CalendarDays } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -7,14 +7,11 @@ import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { cn } from "@/lib/utils/cn";
-import { getDateLocale } from "@/lib/utils/translations";
+import { getDateLocale } from "@/lib/utils/date-time";
 import { formatTime, pad } from "@/lib/utils/date-time";
 
-// Shared by the personal event and task forms.
 
-// Row height of a wheel item; keep in sync with the h-10 classes below.
 const WHEEL_ITEM_HEIGHT = 40;
-// Visible rows per wheel: the centered one plus one faded on each side.
 const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * 3;
 
 export const ChipButton = ({
@@ -32,7 +29,6 @@ export const ChipButton = ({
     />
 );
 
-/** Today / Tomorrow / any other day from a calendar popover. */
 export const DayChips = ({
     day,
     onChange,
@@ -40,7 +36,6 @@ export const DayChips = ({
 }: {
     day: Date;
     onChange: (day: Date) => void;
-    /** Rendered at the end of the row, e.g. the next-lesson shortcut. */
     extra?: ReactNode;
 }) => {
     const { t, i18n } = useTranslation();
@@ -76,10 +71,9 @@ export const DayChips = ({
                     align="start"
                 >
                     <Calendar
-                        mode="single"
                         selected={day}
                         defaultMonth={day}
-                        locale={locale}
+                        locale={{ code: locale }}
                         weekStartsOn={1}
                         onSelect={(date) => {
                             if (date) onChange(startOfDay(date));
@@ -93,10 +87,6 @@ export const DayChips = ({
     );
 };
 
-/**
- * Shows a time in the app's language rather than the device's: native time
- * inputs follow the OS locale, which can't be overridden.
- */
 export const TimeField = ({
     value,
     hour12,
@@ -127,10 +117,6 @@ export const TimeField = ({
 
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
 
-/**
- * One wheel of the time picker: a vertical snap-scroll list whose centered
- * row is the value, iOS-style. Flick it, or tap a row to center it.
- */
 const WheelColumn = ({
     options,
     selected,
@@ -144,15 +130,14 @@ const WheelColumn = ({
 }) => {
     const ref = useRef<HTMLDivElement>(null);
     const [centered, setCentered] = useState(selected);
-    // A new selection only scrolls the wheel when it came from elsewhere
-    // (quick chips, durations): never to echo back the user's own scroll.
     const fromWheel = useRef(false);
     const selectedRef = useRef(selected);
-    selectedRef.current = selected;
     const timer = useRef<number | null>(null);
-    // Open right on the selection: no scroll-up animation on mount, only
-    // later changes (quick chips, durations) move the wheel smoothly.
     const mounted = useRef(false);
+
+    useEffect(() => {
+        selectedRef.current = selected;
+    }, [selected]);
 
     useEffect(() => {
         return () => {
@@ -181,7 +166,6 @@ const WheelColumn = ({
             options.length - 1
         );
         setCentered(index);
-        // Commit once the wheel settles, not for every row it passes.
         if (timer.current !== null) window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => {
             timer.current = null;
@@ -194,7 +178,6 @@ const WheelColumn = ({
 
     return (
         <div className={cn("relative", className)}>
-            {/* The selection band and the fades sit above the wheel. */}
             <div className="pointer-events-none absolute inset-x-0 top-[calc(50%-20px)] h-10 rounded-lg bg-mauria-purple/10 dark:bg-white/10" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[hsl(var(--mauria-card))] to-transparent" />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[hsl(var(--mauria-card))] to-transparent" />
@@ -226,11 +209,6 @@ const WheelColumn = ({
     );
 };
 
-/**
- * The time picker itself: hours and minutes as side-by-side wheels (plus
- * AM/PM in 12 h locales), centered on the current value. Closing happens
- * through the field toggle, the wheels never dismiss on their own.
- */
 export const TimeGrid = ({
     value,
     hour12,
@@ -250,8 +228,6 @@ export const TimeGrid = ({
         : Array.from({ length: 24 }, (_, i) => pad(i));
     const minuteOptions = MINUTES.map((m) => pad(m));
     const shownHour = hour12 ? hours % 12 || 12 : hours;
-    // A value the wheel can't show exactly (23:59) centers on the closest
-    // row below rather than rewriting it.
     const minuteIndex = Math.min(Math.floor(minutes / 5), MINUTES.length - 1);
 
     return (

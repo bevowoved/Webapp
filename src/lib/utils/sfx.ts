@@ -1,11 +1,4 @@
-/**
- * Tiny Web Audio player for the grade reveal sound effects. Web Audio rather
- * than <audio>: the CS2 reel fires dozens of overlapping ticks per second,
- * which media elements can neither overlap nor start without lag.
- *
- * Files live in public/sounds: vite.config.ts gives every imported asset the
- * same fixed name, so they can't go through the bundler.
- */
+import { getFromStorage } from "./storage";
 
 export const SOUNDS = {
     cs2Tick: "sounds/cs2-tick.mp3",
@@ -14,16 +7,27 @@ export const SOUNDS = {
 
 export type SoundName = keyof typeof SOUNDS;
 
+export const HAPTICS_STORAGE_KEY = "hapticsEnabled";
+
 let context: AudioContext | null = null;
 const buffers = new Map<SoundName, Promise<AudioBuffer | null>>();
 
 const getContext = (): AudioContext | null => {
-    if (typeof window === "undefined" || !("AudioContext" in window)) {
-        return null;
-    }
+    if (typeof window === "undefined" || !("AudioContext" in window)) return null;
     context ??= new AudioContext();
     return context;
 };
+
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", () => {
+        if (!context) return;
+        if (document.hidden) {
+            if (context.state === "running") void context.suspend();
+        } else if (context.state === "suspended") {
+            void context.resume();
+        }
+    });
+}
 
 const loadSound = (name: SoundName): Promise<AudioBuffer | null> => {
     let buffer = buffers.get(name);
@@ -40,10 +44,6 @@ const loadSound = (name: SoundName): Promise<AudioBuffer | null> => {
     return buffer;
 };
 
-/**
- * Call from the click that opens a reveal: browsers (iOS first) only let an
- * AudioContext start inside a user gesture. Also warms up the given sounds.
- */
 export const unlockSounds = (...names: SoundName[]) => {
     const ctx = getContext();
     if (!ctx) return;
@@ -51,7 +51,6 @@ export const unlockSounds = (...names: SoundName[]) => {
     names.forEach(loadSound);
 };
 
-/** Fire and forget; silently does nothing if audio is unavailable. */
 export const playSound = (name: SoundName, volume = 1) => {
     const ctx = getContext();
     if (!ctx) return;
@@ -65,3 +64,17 @@ export const playSound = (name: SoundName, volume = 1) => {
         source.start();
     });
 };
+
+const vibrate = (pattern: number | number[]): void => {
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    try {
+        if (getFromStorage(HAPTICS_STORAGE_KEY) === "false") return;
+        navigator.vibrate(pattern);
+    } catch {
+        return;
+    }
+};
+
+export const triggerHaptic = (durationMs = 10): void => vibrate(durationMs);
+
+export const triggerHapticPattern = (pattern: number | number[]): void => vibrate(pattern);

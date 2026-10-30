@@ -1,316 +1,119 @@
 import { Lesson, Grade, Absence, AurionDocument, DocumentsResult } from "@/types/aurion";
-import { apiRequest, APIResponse, API_URL } from "./helper";
-import { getFromStorage, saveToStorage } from "../utils/storage";
+import { APIResponse, API_URL, apiRequest, aurionPost, dedupe, getSession, getSessionSignal } from "./helper";
 import { queryClient } from "@/lib/query-client";
-import {
-    expectedFetchDuration,
-    fetchJuniaStatus,
-    isAurionSessionWarm,
-    markAurionSession,
-    type JuniaStatus,
-    type SlowQueryKey,
-} from "./junia-status";
+import { expectedFetchDuration, fetchJuniaStatus, markAurionSession, type JuniaStatus, type SlowQueryKey } from "./junia-status";
 
-const JUNIA_STATUS_STALE_MS = 1000 * 60; // same as useJuniaStatus
+export { fetchAssos, fetchBuildings, fetchCastelRuMenu, fetchColleGroup, fetchDailyMenu, fetchImportantMessage, fetchRoomsForBuilding, fetchUpdates, getSession, setSession } from "./helper";
+export { clearAurionSession, isAurionSessionWarm, isAurionWarmExpired, WARM_TTL_MS } from "./junia-status";
 
 export const AURION_WARM_QUERY_KEY = ["aurionWarm"] as const;
 
-// Same TTL as the API's session cache: past it, the warm-up has expired.
-const WARM_TTL_MS = 1000 * 60 * 10;
-const LAST_WARM_KEY = "aurionLastWarmAt";
+const DOCUMENT_TIMEOUT_MS = 45_000;
+const MINUTE_MS = 1000 * 60;
+const DOCUMENT_FIELDS = ["category", "docIndex", "downloadType", "submitParam", "selectName", "optionValue", "downloadButtonParam", "consulterParam"] as const;
 
-/** Whether the last successful `/aurion/warm` is older than the API's TTL. */
-export function isAurionWarmExpired(): boolean {
-    const lastWarmAt = Number(getFromStorage(LAST_WARM_KEY));
-    return !lastWarmAt || Date.now() - lastWarmAt >= WARM_TTL_MS;
-}
-
-/**
- * Re-run the warm-up before an Aurion fetch when the last one has expired.
- * Goes through the shared warm query so concurrent fetches await a single
- * request. Never throws: the fetch logs itself in anyway if warm fails.
- */
-async function ensureAurionWarm(): Promise<void> {
-    if (!isAurionWarmExpired()) return;
+export async function ensureJuniaStatus(): Promise<JuniaStatus | null> {
     try {
-        await queryClient.fetchQuery({
-            queryKey: AURION_WARM_QUERY_KEY,
-            queryFn: warmAurionSession,
-            staleTime: 0,
-        });
-    } catch {
-        // Warm is an optimization, never a hard dependency.
-    }
-}
-
-/**
- * Make sure BadJunia's timings are in the query cache before timing a fetch
- * against them. Awaits the shared juniaStatus query when it has no fresh
- * data yet (deduplicated across concurrent fetches), outside the measured
- * window. Returns null when the status is unreachable — the caller then
- * falls back to the measured constants.
- */
-async function ensureJuniaStatus(): Promise<JuniaStatus | null> {
-    try {
-        const status = await queryClient.ensureQueryData({
-            queryKey: ["juniaStatus"],
-            queryFn: fetchJuniaStatus,
-            staleTime: JUNIA_STATUS_STALE_MS,
-        });
-        return status ?? null;
+        return (await queryClient.ensureQueryData({ queryKey: ["juniaStatus"], queryFn: fetchJuniaStatus, staleTime: MINUTE_MS })) ?? null;
     } catch {
         return null;
     }
 }
 
-/**
- * Wrap one of the slow Aurion fetches with console timing: logs the start,
- * then the elapsed time against the BadJunia-estimated duration. Applied in
- * the API layer so every page that fetches logs, not just the welcome one.
- */
-async function timedAurionFetch<T>(
-    key: SlowQueryKey,
-    fn: () => Promise<T>
-): Promise<T> {
-    await ensureAurionWarm();
-    // Load BadJunia's timings first (outside the measured window) so the
-    // expected value is theirs, not the fallback constants.
-    const status = await ensureJuniaStatus();
-    const expected = expectedFetchDuration(status, key);
-    const warm = isAurionSessionWarm();
-    const start = performance.now();
-    console.log(
-        `[fetch] ${key} — start (expected ${expected}ms, ${
-            warm ? "warm session" : "cold session"
-        })`
-    );
-    try {
-        return await fn();
-    } finally {
-        // The session (and its home tokens) are cached now: the next fetch
-        // within the API's TTL only pays the feature page.
-        markAurionSession();
-        const elapsed = Math.round(performance.now() - start);
-        console.log(
-            `[fetch] ${key} — done in ${elapsed}ms (expected ${expected}ms)`
-        );
-    }
+async function timedAurionFetch<T>(key: SlowQueryKey, fn: () => Promise<T>, status?: JuniaStatus | null): Promise<T> {
+    const signal = getSessionSignal();
+    expectedFetchDuration(status === undefined ? await ensureJuniaStatus() : status, key);
+    const result = await fn();
+    if (!signal.aborted) markAurionSession();
+    return result;
 }
 
-type PlanningEntry = APIResponse<Lesson[]>;
-type GradeEntry = APIResponse<Grade[]>;
-type AbsenceEntry = APIResponse<Absence[]>;
-
-export function getSession() {
-    const email = getFromStorage("email");
-    const password = getFromStorage("password");
-    return email && password ? { email, password } : null;
+export async function fetchUser({ email, password }: { email: string; password: string }) {
+    return dedupe(`login:${email}`, async () => {
+        const data = await apiRequest<{ success: boolean; error?: string }>("/aurion/login", "POST", { email, password });
+        if (data?.success) { markAurionSession(4500); void ensureJuniaStatus().then((s) => { if (s?.aurionTimes?.home != null) markAurionSession(s.aurionTimes.home); }); }
+        return data;
+    });
 }
 
-export function setSession(email: string, password: string) {
-    saveToStorage("email", email);
-    saveToStorage("password", password);
-}
-
-export async function fetchUser({
-    email,
-    password,
-}: {
-    email: string;
-    password: string;
-}) {
-    const data = await apiRequest<{ success: boolean; error?: string }>(
-        "/aurion/login",
-        "POST",
-        {
-            email,
-            password,
-        }
-    );
-    if (data?.success) {
-        // The API caches this fresh session and warms the home-page tokens
-        // in the background: the session is fully warm once that page has
-        // loaded, hence the delayed warm mark.
-        const status = await ensureJuniaStatus();
-        markAurionSession(status?.aurionTimes.home ?? 4500);
-    }
-    return data;
-}
-
-/**
- * Ensures the API's session for this account is logged in and its home-page
- * tokens are cached, without fetching any feature data. Fast no-op when the
- * session is already warm. Meant to be called once as soon as the app opens
- * (see `useAurionWarm`), before any of the actual feature fetches.
- */
 export async function warmAurionSession(): Promise<boolean> {
-    const session = getSession();
-    if (!session) return false;
-
-    const data = await apiRequest<{ success: boolean; error?: string }>(
-        "/aurion/warm",
-        "POST",
-        session
-    );
-    if (data?.success) {
-        saveToStorage(LAST_WARM_KEY, String(Date.now()));
-        // The request only resolves once the home page has actually loaded,
-        // so the tokens are usable right now — no delay like after a login.
-        markAurionSession(0);
-    }
-    return !!data?.success;
+    if (!getSession()) return false;
+    if ((await ensureJuniaStatus())?.aurionDown) return false;
+    return dedupe("aurionWarm", async () => {
+        const data = await aurionPost<{ success: boolean; error?: string }>("/aurion/warm");
+        if (data?.success) markAurionSession(0);
+        return !!data?.success;
+    });
 }
 
-export async function fetchPlanning(params?: {
-    start?: string;
-    end?: string;
-}): Promise<PlanningEntry | null> {
-    const session = getSession();
-    if (!session) return null;
-    const start = params?.start ?? null;
-    const end = params?.end ?? null;
+const fetchEndpoint =
+    <T>(key: SlowQueryKey, path: string) =>
+    async (body?: Record<string, unknown>): Promise<APIResponse<T> | null> => {
+        if (!getSession()) return null;
+        const status = await ensureJuniaStatus();
+        if (status?.aurionDown) return null;
+        const dedupeKey = `POST:${path}:${body ? JSON.stringify(body) : ""}`;
+        return dedupe(dedupeKey, () => timedAurionFetch(key, () => aurionPost<APIResponse<T>>(path, body), status));
+    };
 
-    const body = start && end ? { start, end, ...session } : session;
+export const fetchGrades = fetchEndpoint<Grade[]>("grades", "/aurion/grades");
+export const fetchAbsences = fetchEndpoint<Absence[]>("absences", "/aurion/absences");
+export const fetchDocuments = fetchEndpoint<DocumentsResult>("documents", "/aurion/documents");
 
-    return timedAurionFetch("planning", () =>
-        apiRequest<PlanningEntry>(`/aurion/planning`, "POST", body)
-    );
+const fetchPlanningEndpoint = fetchEndpoint<Lesson[]>("planning", "/aurion/planning");
+
+export async function fetchPlanning(params?: { start?: string; end?: string }): Promise<APIResponse<Lesson[]> | null> {
+    const { start, end } = params ?? {};
+    return fetchPlanningEndpoint(start && end ? { start, end } : undefined);
 }
 
-export async function fetchGrades(): Promise<GradeEntry | null> {
-    const session = getSession();
-    if (!session) return null;
-    return timedAurionFetch("grades", () =>
-        apiRequest<GradeEntry>("/aurion/grades", "POST", session)
-    );
-}
-
-export async function fetchAbsences(): Promise<AbsenceEntry | null> {
-    const session = getSession();
-    if (!session) return null;
-    return timedAurionFetch("absences", () =>
-        apiRequest<AbsenceEntry>("/aurion/absences", "POST", session)
-    );
-}
-
-type DocumentEntry = APIResponse<DocumentsResult>;
-
-export async function fetchDocuments(): Promise<DocumentEntry | null> {
-    const session = getSession();
-    if (!session) return null;
-    return timedAurionFetch("documents", () =>
-        apiRequest<DocumentEntry>("/aurion/documents", "POST", session)
-    );
-}
-
-/**
- * Outcome of a document download.  `handedOff` means the file left the app for
- * the system browser, so we know it started but never see it finish.
- */
 export type DownloadOutcome =
     | { status: "saved"; filename: string }
     | { status: "handedOff" }
     | { status: "error" };
 
-type DownloadRequest = Record<string, unknown>;
-
-function buildDownloadRequest(
-    doc: AurionDocument,
-    session: Record<string, string>
-): DownloadRequest {
-    return {
-        ...session,
-        category: doc.category,
-        docIndex: doc.docIndex,
-        downloadType: doc.downloadType,
-        submitParam: doc.submitParam,
-        selectName: doc.selectName,
-        optionValue: doc.optionValue,
-        downloadButtonParam: doc.downloadButtonParam,
-        consulterParam: doc.consulterParam,
-    };
-}
-
-/**
- * Mobile WebViews silently drop `<a download>` on a `blob:` URL — neither
- * Capacitor shell registers a download handler — so the click did nothing and
- * the file never reached the phone.  There we hand a real GET URL to the system
- * browser instead, which saves it natively.
- */
 function prefersBrowserDownload(): boolean {
-    const capacitor = (
-        window as unknown as {
-            Capacitor?: { isNativePlatform?: () => boolean };
-        }
-    ).Capacitor;
+    const capacitor = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     if (capacitor?.isNativePlatform?.()) return true;
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-/**
- * Downloads a document as a binary blob and triggers a browser save.
- * Used on desktop, where the anchor download works.
- */
-async function saveDocumentBlob(
-    body: DownloadRequest
-): Promise<DownloadOutcome> {
+async function saveDocumentBlob(body: Record<string, unknown>): Promise<DownloadOutcome> {
     try {
         const response = await fetch(`${API_URL}/aurion/documents/download`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal: AbortSignal.any([getSessionSignal(), AbortSignal.timeout(DOCUMENT_TIMEOUT_MS)]),
         });
         if (!response.ok) return { status: "error" };
-
         const blob = await response.blob();
-        const cd = response.headers.get("Content-Disposition");
-        const filename =
-            cd?.match(/filename="([^"]+)"/)?.[1] ?? "document.pdf";
-
+        const filename = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "document.pdf";
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const anchor = document.createElement("a");
+        Object.assign(anchor, { href: url, download: filename });
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
         return { status: "saved", filename };
     } catch {
         return { status: "error" };
     }
 }
 
-/**
- * Mints a short-lived download link and navigates to it.  Both Capacitor
- * shells cancel an off-origin top-level navigation and pass the URL to the
- * system browser, so the app stays where it is.
- */
-async function openDocumentInBrowser(
-    body: DownloadRequest
-): Promise<DownloadOutcome> {
-    const data = await apiRequest<APIResponse<{ token: string }>>(
-        "/aurion/documents/download-link",
-        "POST",
-        body
-    );
+async function openDocumentInBrowser(body: Record<string, unknown>): Promise<DownloadOutcome> {
+    const data = await apiRequest<APIResponse<{ token: string }>>("/aurion/documents/download-link", "POST", body);
     const token = data?.data?.token;
     if (!token) return { status: "error" };
-
-    window.location.assign(
-        `${API_URL}/aurion/documents/file?token=${encodeURIComponent(token)}`
-    );
+    window.location.assign(`${API_URL}/aurion/documents/file?token=${encodeURIComponent(token)}`);
     return { status: "handedOff" };
 }
 
-export async function downloadDocument(
-    doc: AurionDocument
-): Promise<DownloadOutcome> {
+export async function downloadDocument(doc: AurionDocument): Promise<DownloadOutcome> {
     const session = getSession();
     if (!session) return { status: "error" };
-
-    const body = buildDownloadRequest(doc, session);
-    return prefersBrowserDownload()
-        ? openDocumentInBrowser(body)
-        : saveDocumentBlob(body);
+    const body: Record<string, unknown> = { ...session };
+    for (const field of DOCUMENT_FIELDS) body[field] = doc[field];
+    return prefersBrowserDownload() ? openDocumentInBrowser(body) : saveDocumentBlob(body);
 }

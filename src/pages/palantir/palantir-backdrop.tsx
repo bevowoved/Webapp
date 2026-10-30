@@ -1,34 +1,15 @@
 import { useEffect, useRef } from "react";
 
-/**
- * The black hole behind the Palantir page: an accretion disk of orbiting
- * particles around a pure black shadow edged by a thin photon ring, with
- * matter spiralling in, shooting stars crossing the void, and sparks
- * drifting up through the starfield.
- *
- * One canvas, one rAF loop, mounted only when the experimental theme is on —
- * everyone else never runs a line of this. Everything is drawn with arcs,
- * radial gradients and ellipses: no conic gradients (Safari only got those in
- * 16), no images, no shaders.
- *
- * Positioned absolutely *inside* the page. Mauria's header sets z-10 but is
- * not positioned, so its z-index is inert and this canvas would paint over
- * it if it reached that high — stacking decides, so the backdrop stays flush
- * with the page top.
- */
 
 type Orbiter = {
-    /** Orbit radius, as a fraction of the disk radius. */
     radius: number;
     angle: number;
     speed: number;
-    /** Arc length drawn behind the particle. */
     trail: number;
     alpha: number;
     width: number;
 };
 
-/** A particle caught falling in: it still orbits, but the orbit decays. */
 type Faller = {
     radius: number;
     angle: number;
@@ -49,29 +30,24 @@ type Ember = {
 type Meteor = {
     x: number;
     y: number;
-    /** Per-tick velocity, in CSS pixels. */
     vx: number;
     vy: number;
     life: number;
     maxLife: number;
 };
 
-/** The disk is seen at a low angle: vertical radii are squashed by this. */
 const SQUASH = 0.26;
 
-/** The disk is rolled slightly off-level — it isn't quite horizontal. */
 const TILT = -0.12;
 
 const TAU = Math.PI * 2;
 
 const makeOrbiters = (count: number): Orbiter[] =>
     Array.from({ length: count }, () => {
-        // Bias towards the inner edge, where a real disk is densest.
         const radius = 0.5 + Math.pow(Math.random(), 1.7) * 0.5;
         return {
             radius,
             angle: Math.random() * TAU,
-            // Keplerian-ish: the closer in, the faster it goes round.
             speed: 0.00025 / Math.pow(radius, 1.5),
             trail: 0.1 + Math.random() * 0.3,
             alpha: 0.25 + Math.random() * 0.75,
@@ -101,9 +77,11 @@ const makeEmbers = (count: number, w: number, h: number): Ember[] =>
 export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const backdropRef = useRef<HTMLDivElement>(null);
-    // Read inside the loop so a re-render never restarts the animation.
     const compactRef = useRef(compact);
-    compactRef.current = compact;
+
+    useEffect(() => {
+        compactRef.current = compact;
+    }, [compact]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -117,10 +95,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
 
         let width = 0;
         let height = 0;
-        // How much of the canvas the first screenful shows. The page grows
-        // with the results list, but the hole must keep its place on screen —
-        // anchoring it to the full canvas height would teleport it down the
-        // moment results push the page taller.
         let viewHeight = 0;
         let orbiters: Orbiter[] = [];
         let fallers: Faller[] = [];
@@ -128,14 +102,9 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
         let meteor: Meteor | null = null;
         let meteorCooldown = 2500;
         let time = 0;
-        // Smoothed towards their targets so the hole glides when results come.
         let centerY = 0.42;
         let scale = 1;
 
-        // Parallax tilt, trading-card style: the mouse on desktop, the phone's
-        // orientation in the hand. The target is smoothed in the draw loop and
-        // handed to the CSS as --pv-px / --pv-py, and every star layer then
-        // shifts by its own depth.
         let tiltTargetX = 0;
         let tiltTargetY = 0;
         let tiltX = 0;
@@ -159,9 +128,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
         let orientationAsk: (() => void) | null = null;
         if (!reduced) {
             window.addEventListener("pointermove", onPointerMove);
-            // iOS gates orientation behind a permission only a user gesture
-            // can ask for; ask once on the first touch, stay quiet if
-            // refused. Android fires the event with no gate.
             const D =
                 DeviceOrientationEvent as unknown as {
                     requestPermission?: () => Promise<string>;
@@ -191,14 +157,12 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
             canvas.width = Math.round(width * dpr);
             canvas.height = Math.round(height * dpr);
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            // Document coords, so this does not move when the page scrolls.
             const top = rect.top + window.scrollY;
             viewHeight = Math.max(
                 1,
                 Math.min(height, window.innerHeight - top)
             );
 
-            // Fewer particles on a phone than on a desktop viewport.
             const count = Math.round(
                 Math.min(260, Math.max(90, (width * height) / 5200))
             );
@@ -213,18 +177,13 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
             );
         };
 
-        /** The event horizon: a pure black shadow with a thin photon ring. */
         const drawHorizon = (cx: number, cy: number, r: number) => {
-            // The shadow: absolutely black — the one thing light never leaves.
             ctx.globalCompositeOperation = "source-over";
             ctx.beginPath();
             ctx.arc(cx, cy, r, 0, TAU);
             ctx.fillStyle = "#000";
             ctx.fill();
 
-            // The photon ring: a thin, faint rim of bent light. It is the
-            // only light the hole allows near it — the shadow stays black.
-            // It breathes: never still, never loud.
             ctx.globalCompositeOperation = "lighter";
             ctx.beginPath();
             ctx.arc(cx, cy, r * 1.02, 0, TAU);
@@ -242,7 +201,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
             scale += (targetScale - scale) * 0.05;
 
             const cx = width / 2;
-            // Anchored to the first screenful, not to the page: see resize().
             const cy = viewHeight * centerY;
             const disk = Math.min(width * 0.44, viewHeight * 0.44) * scale;
             const stone = disk * 0.34;
@@ -250,17 +208,11 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
             ctx.clearRect(0, 0, width, height);
 
             const drawOrbiter = (p: Orbiter, far: boolean) => {
-                // The far half of the orbit is the top of the squashed ellipse.
                 if (Math.sin(p.angle) < 0 !== far) return;
 
                 const r = disk * p.radius;
-                // A nod to relativistic beaming: the side coming towards the
-                // viewer reads brighter than the one going away.
                 const beaming = 0.35 + 0.65 * (0.5 + 0.5 * Math.cos(p.angle));
-                // Inner orbits run hot (amber), outer ones cool to violet.
                 const heat = 1 - (p.radius - 0.5) / 0.5;
-                // Density waves: two trailing arms wind through the disk, and
-                // a particle rides brighter while it sits inside one.
                 const arm =
                     p.angle + Math.log(p.radius) * 3.5 - time * 0.00012;
                 const inArm = 0.5 + 0.5 * Math.cos(2 * arm);
@@ -285,9 +237,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
                 ctx.stroke();
             };
 
-            // Matter spiralling in: brightening as the orbit decays, gone
-            // at the ring. Like the orbiters, the far half of the orbit
-            // passes behind the shadow, the near half in front of it.
             const drawFaller = (f: Faller, far: boolean) => {
                 if (Math.sin(f.angle) < 0 !== far) return;
                 const r = disk * f.radius;
@@ -305,8 +254,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
                 ctx.stroke();
             };
 
-            // Everything that orbits is drawn in a frame rolled around the
-            // hole; the shadow and its ring — perfect circles — stay upright.
             const beginTilt = () => {
                 ctx.save();
                 ctx.translate(cx, cy);
@@ -327,7 +274,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
             for (const f of fallers) drawFaller(f, false);
             ctx.restore();
 
-            // A shooting star crossing the void, head first.
             if (meteor) {
                 const fade = Math.sin((meteor.life / meteor.maxLife) * Math.PI);
                 const tailX = meteor.x - meteor.vx * 14;
@@ -349,7 +295,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
                 ctx.stroke();
             }
 
-            // Drifting sparks, last so they read in front of everything.
             for (const e of embers) {
                 const x = e.x + Math.sin(time * 0.0007 + e.phase) * e.sway;
                 ctx.beginPath();
@@ -364,7 +309,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
         let frame = 0;
         const loop = () => {
             time += 16;
-            // Ease the parallax toward its target and hand it to the CSS.
             tiltX += (tiltTargetX - tiltX) * 0.08;
             tiltY += (tiltTargetY - tiltY) * 0.08;
             backdropRef.current?.style.setProperty(
@@ -380,8 +324,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
                 if (p.angle > TAU) p.angle -= TAU;
             }
             for (const f of fallers) {
-                // Keplerian spin that quickens as the orbit decays, and an
-                // infall that accelerates the closer the ring comes.
                 f.angle += (0.00025 / Math.pow(f.radius, 1.5)) * 16;
                 if (f.angle > TAU) f.angle -= TAU;
                 f.radius -= (0.000033 / f.radius) * 16;
@@ -408,7 +350,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
                     meteor.y > height + 60
                 ) {
                     meteor = null;
-                    // Long, irregular silences between two shooting stars.
                     meteorCooldown = 4000 + Math.random() * 9000;
                 }
             } else {
@@ -437,7 +378,6 @@ export function PalantirBackdrop({ compact = false }: { compact?: boolean }) {
 
         resize();
         if (reduced) {
-            // One static frame: the hole is there, it just doesn't spin.
             draw();
         } else {
             frame = requestAnimationFrame(loop);

@@ -11,7 +11,6 @@ import {
 } from "@/lib/hooks/use-welcome-prefetch";
 import { fadeIn } from "@/lib/motion";
 
-// Gentle cascade for the campus buttons, same feel as the welcome screen.
 const campusStagger = {
     hidden: {},
     show: { transition: { delayChildren: 0.15, staggerChildren: 0.15 } },
@@ -24,9 +23,6 @@ export function CampusPage() {
 
     const handleSelect = (campus: Campus) => {
         setCampus(campus);
-        // Background prefetch already done (success or error): straight to
-        // the home page. Otherwise, the preparation page takes over and
-        // waits for the remaining queries.
         const settled = (key: string) => {
             const state = queryClient.getQueryState([key]);
             return state != null && state.status !== "pending";

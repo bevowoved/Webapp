@@ -116,6 +116,7 @@
     },
     "languageParameter": {
       "title": "Langue",
+      "aria": "Sélecteur de langue",
       "english": "Anglais",
       "french": "Français",
       "spanish": "Espagnol",
@@ -162,7 +163,9 @@
     "agenda": "Agenda"
   },
   "homePage": {
-    "title": "Hello ",
+    "title": "Hello",
+    "welcome": "toi",
+    "welcomeMessage": ", Bienvenue sur Mauria !",
     "nextClasses": "À venir",
     "nextClassesEmptyState": "Rien à venir pour aujourd'hui ni demain, profite bien de ton repos et de ton temps libre !",
     "loadingSchedule": "Données du planning en cours de chargement…",
@@ -208,7 +211,6 @@
       "SEMINAIRE": "Séminaire",
       "DS": "DS"
     },
-    "welcome": ", Bienvenue sur Mauria !",
     "restaurants": {
       "title": "Menu du jour",
       "menuOf": "Menu du {{date}}",

@@ -1,7 +1,7 @@
 import { getDateLocale } from "@/lib/utils/translations";
 import { DrawerContent, DrawerTitle, Drawer } from "./ui/drawer";
 import { Separator } from "@/components/ui/separator";
-import { format } from "date-fns";
+import { format } from "@/lib/utils/date-time";
 import { PreparedLesson } from "@/types/home";
 import {
     BookOpen,
@@ -31,7 +31,6 @@ export function DrawerPlanningContent({
     drawerOpen: boolean;
     setDrawerOpen: (open: boolean) => void;
     eventInfo: PreparedLesson | null;
-    /** Only personal events can be edited or deleted. */
     onEdit?: () => void;
     onDelete?: () => void;
 }) {
@@ -217,7 +216,6 @@ export function DrawerPlanningContent({
                             </div>
                         )}
 
-                        {/* Personal events have no Aurion internals to show. */}
                         {!onEdit && (
                             <details className="mt-6">
                                 <summary className="font-semibold cursor-pointer text-mauria-purple dark:text-gray-300 oled:text-gray-200 flex items-center gap-2 hover:text-mauria-purple/80 oled:hover:text-gray-200 transition-colors">

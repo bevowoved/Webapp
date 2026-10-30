@@ -4,16 +4,13 @@ import {
     ChevronDown,
     GraduationCap,
     Info,
-    Loader2,
     Package,
 } from "lucide-react";
-import { AurionDownState } from "@/components/aurion-down-state";
+import { EmptyListState } from "@/components/aurion-down-state";
 import { useJuniaStatus } from "@/lib/hooks/use-junia-status";
 import { GradeRevealOverlay } from "./reveal/grade-reveal-overlay";
-import { BoosterEntryCard } from "./reveal/pokemon/booster-entry-card";
-import { BoosterOverlay } from "./reveal/pokemon/booster-overlay";
-import { LootboxEntryCard } from "./reveal/lootbox/lootbox-entry-card";
-import { LootboxOverlay } from "./reveal/lootbox/lootbox-overlay";
+import { BoosterEntryCard, BoosterOverlay } from "./reveal/pokemon/booster-overlay";
+import { LootboxEntryCard, LootboxOverlay } from "./reveal/lootbox/lootbox-overlay";
 import { GradeCard, GradeCardAnimate, UnopenedGradeCard } from "./grade-card";
 import {
     getGrades,
@@ -26,13 +23,13 @@ import {
 import {
     computeAverages,
     computeAverageEvolution,
-} from "@/lib/utils/grades-averages";
+} from "@/lib/utils/grades";
 import { AnimatePresence, motion } from "framer-motion";
-import { fetchGrades } from "@/lib/api/aurion";
-import { useWidgetGradesSync } from "@/lib/native/use-widget-grades-sync";
+import { useWidgetGradesSync } from "@/lib/native/widget";
 import { useQuery } from "@tanstack/react-query";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { Grade } from "@/types/aurion";
+import { EMPTY_GRADES, gradesQueryOptions } from "@/lib/hooks/use-colles";
 import {
     Drawer,
     DrawerContent,
@@ -45,16 +42,14 @@ import { fadeIn, staggerGroup } from "@/lib/motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { format } from "@/lib/utils/date-time";
 import { getDateLocale } from "@/lib/utils/translations";
 import { useTranslation } from "react-i18next";
-import { GradePositionSlider } from "./grades-stats";
-import { LineChart, Line, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
-    ChartContainer,
-    ChartTooltip,
-    ChartConfig,
-} from "@/components/ui/chart";
+    GradePositionSlider,
+    GradesEvolutionChart as GradesEvolutionSvg,
+    type EvolutionSeries,
+} from "./grades-stats";
 import { useGradeRevealMode } from "@/lib/utils/experimental";
 import { useAurionWarm } from "@/lib/hooks/use-aurion-warm";
 import { unlockSounds } from "@/lib/utils/sfx";
@@ -69,63 +64,6 @@ import { CarouselItem, FilterCarousel } from "@/components/filter-carousel";
 
 const AnimatedGradeCard = memo(GradeCardAnimate);
 const StaticGradeCard = memo(GradeCard);
-
-function GradesEvolutionTooltip({
-    active,
-    payload,
-    label,
-    formatDate,
-    t,
-}: {
-    active?: boolean;
-    payload?: Array<{ dataKey: string; value: number; color: string }>;
-    label?: string;
-    formatDate: (d: string) => string;
-    t: (k: string) => string;
-}) {
-    if (!active || !payload?.length || !label) return null;
-    const studentAboveEntry = payload.find(
-        (p) => p.dataKey === "studentAbove" && p.value != null
-    );
-    const studentBelowEntry = payload.find(
-        (p) => p.dataKey === "studentBelow" && p.value != null
-    );
-    const studentEntry = studentAboveEntry ?? studentBelowEntry;
-    const cls = payload.find((p) => p.dataKey === "class");
-    return (
-        <div className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl space-y-1">
-            <p className="font-medium">{formatDate(label)}</p>
-            {studentEntry?.value != null && (
-                <div className="flex items-center gap-2">
-                    <div
-                        className="h-2 w-2 shrink-0 rounded-[2px]"
-                        style={{ backgroundColor: studentEntry.color }}
-                    />
-                    <span className="text-muted-foreground">
-                        {t("gradesPage.myAverage")}
-                    </span>
-                    <span className="ml-auto pl-3 font-mono font-medium tabular-nums">
-                        {Number(studentEntry.value).toFixed(2)}
-                    </span>
-                </div>
-            )}
-            {cls?.value != null && (
-                <div className="flex items-center gap-2">
-                    <div
-                        className="h-2 w-2 shrink-0 rounded-[2px]"
-                        style={{ backgroundColor: cls.color }}
-                    />
-                    <span className="text-muted-foreground">
-                        {t("gradesPage.classAverage")}
-                    </span>
-                    <span className="ml-auto pl-3 font-mono font-medium tabular-nums">
-                        {Number(cls.value).toFixed(2)}
-                    </span>
-                </div>
-            )}
-        </div>
-    );
-}
 
 function splitStudentByComparison(
     data: Array<{ date: string; student: number | null; class: number | null }>
@@ -169,32 +107,28 @@ function GradesEvolutionChart({
 
     if (data.length < 2) return null;
 
-    const chartConfig: ChartConfig = {
-        studentAbove: {
+    const series: EvolutionSeries[] = [
+        {
+            key: "studentAbove",
             label: t("gradesPage.myAverage"),
-            theme: {
-                light: "hsl(142 71% 29%)",
-                dark: "hsl(142 69% 52%)",
-                oled: "hsl(142 65% 68%)",
-            },
+            stroke: "hsl(var(--chart-student-above))",
+            strokeWidth: 2,
         },
-        studentBelow: {
+        {
+            key: "studentBelow",
             label: t("gradesPage.myAverage"),
-            theme: {
-                light: "hsl(24 88% 52%)",
-                dark: "hsl(24 88% 58%)",
-                oled: "hsl(24 88% 58%)",
-            },
+            stroke: "hsl(var(--chart-student-below))",
+            strokeWidth: 2,
         },
-        class: {
+        {
+            key: "class",
             label: t("gradesPage.classAverage"),
-            theme: {
-                light: "hsl(210 16% 65%)",
-                dark: "hsl(210 16% 55%)",
-                oled: "hsl(210 8% 44%)",
-            },
+            stroke: "hsl(var(--chart-class))",
+            strokeWidth: 1.5,
+            dash: "4 2",
+            connectNulls: true,
         },
-    };
+    ];
 
     const formatXDate = (dateStr: string) => {
         try {
@@ -219,72 +153,12 @@ function GradesEvolutionChart({
                       })
                     : t("gradesPage.averageEvolutionGeneral")}
             </p>
-            <ChartContainer
-                config={chartConfig}
-                className="h-36 w-full aspect-auto"
-            >
-                <LineChart
-                    data={data}
-                    margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
-                >
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                        dataKey="date"
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={formatXDate}
-                        tick={{ fontSize: 10 }}
-                        interval="preserveStartEnd"
-                        minTickGap={30}
-                    />
-                    <YAxis
-                        domain={[0, 20]}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 10 }}
-                        tickCount={5}
-                    />
-                    <ChartTooltip
-                        content={({ active, payload, label }) => (
-                            <GradesEvolutionTooltip
-                                active={active}
-                                payload={
-                                    payload as Array<{
-                                        dataKey: string;
-                                        value: number;
-                                        color: string;
-                                    }>
-                                }
-                                label={label as string}
-                                formatDate={formatXDate}
-                                t={t}
-                            />
-                        )}
-                    />
-                    <Line
-                        dataKey="studentAbove"
-                        stroke="var(--color-studentAbove)"
-                        strokeWidth={2}
-                        dot={false}
-                        legendType="none"
-                    />
-                    <Line
-                        dataKey="studentBelow"
-                        stroke="var(--color-studentBelow)"
-                        strokeWidth={2}
-                        dot={false}
-                        legendType="none"
-                    />
-                    <Line
-                        dataKey="class"
-                        stroke="var(--color-class)"
-                        strokeWidth={1.5}
-                        dot={false}
-                        strokeDasharray="4 2"
-                        connectNulls
-                    />
-                </LineChart>
-            </ChartContainer>
+            <GradesEvolutionSvg
+                data={data}
+                series={series}
+                formatDate={formatXDate}
+                className="h-36 w-full text-foreground"
+            />
         </div>
     );
 }
@@ -448,48 +322,26 @@ export function GradesPage() {
     const [boosterOpen, setBoosterOpen] = useState(false);
     const { t, i18n } = useTranslation();
     const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
-    // undefined = not chosen yet (falls back to the current semester);
-    // null = "All"; string = a specific semester key
     const [semesterChoice, setSemesterChoice] = useState<
         string | null | undefined
     >(undefined);
     const { isWarming } = useAurionWarm();
+    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
 
     const {
-        data: grades = [],
+        data: grades = EMPTY_GRADES,
         refetch,
         isLoading,
-        isFetching,
-    } = useQuery<Grade[], Error>({
-        queryKey: ["grades"],
-        queryFn: async (): Promise<Grade[]> => {
-            const res = await fetchGrades();
-            // Throw (don't return []) on failure so React Query keeps the
-            // cached data instead of wiping it — e.g. a failed
-            // refetch-on-focus after the app was backgrounded.
-            if (!res?.success) {
-                throw new Error("Failed to fetch grades");
-            }
-            return res.data ?? [];
-        },
-        enabled: !isWarming,
-        staleTime: 1000 * 60 * 5, // 5 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
-        refetchOnWindowFocus: true, // refresh background si focus fenêtre
-        placeholderData: (previousData) => previousData,
-    });
+    } = useQuery(gradesQueryOptions(!isWarming && !aurionDown));
 
     const revealMode = useGradeRevealMode();
     const unopenedKeys = useUnopenedGrades();
     const isUnopened = (grade: Grade) =>
         revealMode !== "off" && unopenedKeys.has(getGradeKey(grade));
 
-    const isBusy = isWarming || isLoading || isFetching;
-    const aurionDown = useJuniaStatus()?.aurionDown ?? false;
+    const isBusy = (isWarming && grades.length === 0) || isLoading;
 
-    const handleRefresh = () => {
-        void refetch();
-    };
+    const handleRefresh = () => refetch();
 
     useWidgetGradesSync(grades);
 
@@ -498,7 +350,6 @@ export function GradesPage() {
     const semesterKey = useMemo(() => {
         if (semesterChoice !== undefined) return semesterChoice;
         const current = getCurrentSemesterKey();
-        // Default to the current semester, else the most recent one with grades
         if (semesters.some((s) => s.key === current)) return current;
         return semesters[semesters.length - 1]?.key ?? null;
     }, [semesterChoice, semesters]);
@@ -514,7 +365,7 @@ export function GradesPage() {
             const info = getGradeBadgeInfoFromCode(grade.code);
             if (info?.labelKey) keys.add(info.labelKey);
         }
-        return Array.from(keys).sort();
+        return [...keys].toSorted();
     }, [filteredGrades]);
 
     const displayedGrades = useMemo(() => {
@@ -525,7 +376,6 @@ export function GradesPage() {
         );
     }, [filteredGrades, selectedSubject]);
 
-    // Unopened grades stay out of the averages and the chart
     const openedFilteredGrades = useMemo(
         () =>
             revealMode !== "off"
@@ -545,9 +395,7 @@ export function GradesPage() {
         [displayedGrades, revealMode, unopenedKeys]
     );
 
-    // Boosters and lootboxes open several grades at once
     const packMode = revealMode === "pokemon" || revealMode === "overwatch";
-    // The pack draws from every pending grade, not just the filtered view
     const pendingGrades = useMemo(
         () =>
             packMode
@@ -555,7 +403,6 @@ export function GradesPage() {
                 : [],
         [grades, packMode, unopenedKeys]
     );
-    // Pack modes hide the pending grades entirely: they only show up as cards
     const listedGrades = packMode ? openedDisplayedGrades : displayedGrades;
 
     const hasKnownClass = useMemo(
@@ -585,8 +432,6 @@ export function GradesPage() {
         [availableSubjects, t]
     );
 
-    // Remounts the results list on every filter change so the entrance
-    // animation replays consistently (and not just from the 2nd change on).
     const filterKey = `${semesterKey ?? "all"}|${selectedSubject ?? "all"}`;
 
     return (
@@ -649,41 +494,15 @@ export function GradesPage() {
                                 animate="show"
                                 exit="exit"
                             >
-                                <div className="text-center py-12">
-                                    <div className="bg-mauria-card rounded-xl shadow-md p-8 max-w-md mx-auto">
-                                        {aurionDown && grades.length === 0 ? (
-                                            <AurionDownState
-                                                message={t(
-                                                    "gradesPage.noGradesCached"
-                                                )}
-                                            />
-                                        ) : (
-                                            <>
-                                                <div className="w-16 h-16 bg-muted-foreground/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                    {isBusy ? (
-                                                        <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-                                                    ) : (
-                                                        <GraduationCap className="w-8 h-8 text-muted-foreground" />
-                                                    )}
-                                                </div>
-                                                <h3 className="text-lg font-semibold mb-2">
-                                                    {isBusy
-                                                        ? t("common.loading")
-                                                        : t(
-                                                              "gradesPage.noGrades"
-                                                          )}
-                                                </h3>
-                                                {!isBusy && (
-                                                    <p className="text-muted-foreground">
-                                                        {t(
-                                                            "gradesPage.noGradesPlaceholder"
-                                                        )}
-                                                    </p>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
+                                <EmptyListState
+                                    busy={isBusy}
+                                    aurionDown={aurionDown}
+                                    hasCachedItems={grades.length > 0}
+                                    cachedMessage={t("gradesPage.noGradesCached")}
+                                    icon={GraduationCap}
+                                    emptyTitle={t("gradesPage.noGrades")}
+                                    emptyBody={t("gradesPage.noGradesPlaceholder")}
+                                />
                             </motion.div>
                         ) : (
                             <motion.div
@@ -722,7 +541,6 @@ export function GradesPage() {
                                                 grade={grade}
                                                 mode={revealMode}
                                                 onOpen={(grade) => {
-                                                    // Audio may only start inside this click
                                                     if (revealMode === "cs2") {
                                                         unlockSounds(
                                                             "cs2Tick",

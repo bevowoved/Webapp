@@ -12,7 +12,7 @@ import {
     DrawerHeader,
     DrawerTitle,
 } from "@/components/ui/drawer";
-import { fetchAssos } from "@/lib/api/supa";
+import { fetchAssos } from "@/lib/api/helper";
 import { AssociationData } from "@/types/data";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -25,7 +25,7 @@ import {
 
 const formLink = "https://forms.office.com/e/Kpx2fP8Gh1";
 
-const MotionCard = motion(Card);
+const MotionCard = motion.create(Card);
 
 function AssociationImage({
     src,
@@ -62,8 +62,8 @@ export function AssociationsPage() {
     const { data: associations = [] } = useQuery<AssociationData[], Error>({
         queryKey: ["associations"],
         queryFn: () => fetchAssos().then((res) => res || []),
-        staleTime: 1000 * 60 * 5, // 5 min frais
-        gcTime: 1000 * 60 * 60 * 24, // 24h cache
+        staleTime: 1000 * 60 * 5, 
+        gcTime: 1000 * 60 * 60 * 24, 
         placeholderData: (previousData) => previousData,
     });
 
@@ -123,7 +123,6 @@ export function AssociationsPage() {
                     </Button>
                 </div>
             </motion.div>
-            {/* Associations Grid */}
             <div className="w-full">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                     {filteredAssociations.map((association, index) => (

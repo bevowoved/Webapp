@@ -1,12 +1,12 @@
 import { Card } from "@/components/ui/card";
 import { Absence } from "@/types/aurion";
-import { format } from "date-fns";
+import { format } from "@/lib/utils/date-time";
 import { getDateLocale } from "@/lib/utils/translations";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { fadeInIndexed } from "@/lib/motion";
 
-const MotionCard = motion(Card);
+const MotionCard = motion.create(Card);
 export function AbsenceCardAnimate({
     absence,
     index = 0,
@@ -66,7 +66,7 @@ export function AbsenceCard({ absence }: { absence: Absence }) {
     const locale = getDateLocale(i18n.language);
     const isJustified = !absence.type.toLowerCase().includes("non");
     return (
-        <Card className="border-none bg-white shadow-md transition-shadow dark:bg-mauria-card">
+        <Card className="border-none bg-white shadow-md transition-shadow dark:bg-mauria-card [content-visibility:auto] [contain-intrinsic-size:auto_72px]">
             <div className="flex p-4 items-center h-full">
                 <div className="w-20 mr-4 items-center justify-center text-center">
                     <div

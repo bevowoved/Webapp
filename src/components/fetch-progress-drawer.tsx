@@ -31,10 +31,8 @@ import {
 import { Progress } from "@/components/ui/progress";
 import type { FetchEntry } from "@/lib/hooks/use-fetch-progress";
 
-// Delay before closing once the last fetch is done, so its row can leave.
 const CLOSE_DELAY_MS = 600;
 
-/** Icon and label (`fetchDrawer.queries.*`) per query key. */
 const QUERIES: Record<string, { icon: LucideIcon; label: string }> = {
     aurionWarm: { icon: Zap, label: "warm" },
     planning: { icon: Calendar, label: "planning" },
@@ -66,7 +64,6 @@ export function FetchProgressDrawer({
 }) {
     const { t } = useTranslation();
 
-    // Everything is fetched: nothing left to show.
     const empty = fetches.length === 0;
     useEffect(() => {
         if (!open || !empty) return;

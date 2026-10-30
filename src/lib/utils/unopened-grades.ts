@@ -1,125 +1,120 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { Grade } from "@/types/aurion";
 import { readGradeRevealMode } from "./experimental";
-import { getFromStorage, removeFromStorage, saveToStorage } from "./storage";
+import { getFromStorage, notifyStorage, onStorageChange, removeFromStorage, saveToStorage, useStorageSync } from "./storage";
 
 export const KNOWN_GRADES_STORAGE_KEY = "mauria-known-grades";
 export const UNOPENED_GRADES_STORAGE_KEY = "mauria-unopened-grades";
+const EVENT = "mauria-unopened-grades-change";
 
-const UNOPENED_GRADES_EVENT = "mauria-unopened-grades-change";
+export const getGradeKey = (grade: Grade): string => [grade.date, grade.code, grade.name].join("|");
 
-// Aurion gives no grade id: date + code + name is what identifies a grade
-export const getGradeKey = (grade: Grade): string =>
-    [grade.date, grade.code, grade.name].join("|");
-
-const readList = (key: string): string[] | null => {
-    const raw = getFromStorage(key);
-    if (!raw) return null;
-
+const parseKeys = (raw: string | null): Set<string> => {
+    if (!raw) return new Set();
     try {
         const parsed: unknown = JSON.parse(raw);
-        return Array.isArray(parsed)
-            ? parsed.filter((v): v is string => typeof v === "string")
-            : null;
+        return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === "string")) : new Set();
     } catch {
-        return null;
+        return new Set();
     }
 };
 
-export const readUnopenedGrades = (): string[] =>
-    readList(UNOPENED_GRADES_STORAGE_KEY) ?? [];
+const memo = new Map<string, { raw: string | null; keys: Set<string> }>();
 
-const saveUnopenedGrades = (keys: string[]) => {
-    saveToStorage(UNOPENED_GRADES_STORAGE_KEY, JSON.stringify(keys));
-    window.dispatchEvent(new Event(UNOPENED_GRADES_EVENT));
+const readKeys = (key: string): Set<string> => {
+    const raw = getFromStorage(key);
+    const hit = memo.get(key);
+    if (hit && hit.raw === raw) return new Set(hit.keys);
+    const keys = parseKeys(raw);
+    memo.set(key, { raw, keys });
+    return new Set(keys);
 };
 
-/**
- * Flags the grades that were never fetched before as "unopened". Called on
- * every successful grades fetch. The very first run only records what is
- * already there, so existing grades are never flagged.
- */
+let snapshot: readonly string[] = Object.freeze([]);
+
+const refresh = () => {
+    const next = [...readKeys(UNOPENED_GRADES_STORAGE_KEY)];
+    if (next.length !== snapshot.length || next.some((v, i) => v !== snapshot[i])) snapshot = Object.freeze(next);
+    return snapshot;
+};
+
+const commit = (unopened: Set<string>) => {
+    if (typeof window === "undefined") return;
+    saveToStorage(UNOPENED_GRADES_STORAGE_KEY, JSON.stringify([...unopened]));
+    refresh();
+    notifyStorage(EVENT);
+};
+
+if (typeof window !== "undefined") {
+    onStorageChange((key) => {
+        if (key !== null && key !== KNOWN_GRADES_STORAGE_KEY && key !== UNOPENED_GRADES_STORAGE_KEY) return;
+        memo.clear();
+        snapshot = Object.freeze([]);
+        refresh();
+        notifyStorage(EVENT);
+    });
+}
+
+export const readUnopenedGrades = (): readonly string[] => refresh();
+
 export const trackNewGrades = (grades: Grade[]) => {
-    if (typeof window === "undefined") return;
-    // Opted out: never read, write or grow anything in storage
-    if (readGradeRevealMode() === "off") return;
-    if (!Array.isArray(grades)) return;
-
-    const keys = grades.filter((grade) => grade.grade?.trim()).map(getGradeKey);
-    const known = readList(KNOWN_GRADES_STORAGE_KEY);
-
-    if (known) {
-        const knownSet = new Set(known);
-        const fresh = keys.filter((key) => !knownSet.has(key));
-
-        if (fresh.length === 0) return;
-
-        const unopened = readUnopenedGrades();
-        saveUnopenedGrades([
-            ...unopened,
-            ...fresh.filter((key) => !unopened.includes(key)),
-        ]);
+    if (typeof window === "undefined" || readGradeRevealMode() === "off" || !Array.isArray(grades)) return;
+    const known = readKeys(KNOWN_GRADES_STORAGE_KEY);
+    const unopened = readKeys(UNOPENED_GRADES_STORAGE_KEY);
+    const firstRun = getFromStorage(KNOWN_GRADES_STORAGE_KEY) === null;
+    const fresh: string[] = [];
+    for (const grade of grades) {
+        if (!grade.grade?.trim()) continue;
+        const key = getGradeKey(grade);
+        if (known.has(key)) continue;
+        known.add(key);
+        fresh.push(key);
     }
-
-    saveToStorage(
-        KNOWN_GRADES_STORAGE_KEY,
-        JSON.stringify(Array.from(new Set([...(known ?? []), ...keys])))
-    );
+    if (fresh.length === 0) return;
+    if (!firstRun) for (const key of fresh) unopened.add(key);
+    saveToStorage(KNOWN_GRADES_STORAGE_KEY, JSON.stringify([...known]));
+    commit(unopened);
 };
 
-/**
- * Wipes every trace of the feature. Called when the reveal setting leaves or
- * enters "off", so disabling it leaves nothing behind and enabling it starts
- * from a clean slate instead of flagging grades seen while it was off.
- * Switching between two reveal effects keeps the pending grades untouched.
- */
-export const resetGradeTracking = () => {
-    if (typeof window === "undefined") return;
-
+export const clearUnopenedGrades = () => {
+    memo.clear();
+    snapshot = Object.freeze([]);
     removeFromStorage(KNOWN_GRADES_STORAGE_KEY);
     removeFromStorage(UNOPENED_GRADES_STORAGE_KEY);
-    window.dispatchEvent(new Event(UNOPENED_GRADES_EVENT));
+    notifyStorage(EVENT);
+};
+
+export const resetGradeTracking = () => {
+    if (typeof window === "undefined") return;
+    clearUnopenedGrades();
 };
 
 export const openGrade = (grade: Grade) => openGrades([grade]);
 
-/** Marks a whole booster worth of grades as opened in one write. */
 export const openGrades = (grades: Grade[]) => {
-    if (typeof window === "undefined") return;
-    if (grades.length === 0) return;
-
-    const keys = new Set(grades.map(getGradeKey));
-    saveUnopenedGrades(readUnopenedGrades().filter((key) => !keys.has(key)));
+    if (typeof window === "undefined" || grades.length === 0) return;
+    const unopened = readKeys(UNOPENED_GRADES_STORAGE_KEY);
+    let changed = false;
+    for (const grade of grades) if (unopened.delete(getGradeKey(grade))) changed = true;
+    if (!changed) return;
+    commit(unopened);
 };
 
-/** Puts an already-opened grade back into the unopened/unboxing list. */
 export const repackGrade = (grade: Grade) => {
     if (typeof window === "undefined") return;
-
+    const unopened = readKeys(UNOPENED_GRADES_STORAGE_KEY);
     const key = getGradeKey(grade);
-    const unopened = readUnopenedGrades();
-    if (unopened.includes(key)) return;
-
-    saveUnopenedGrades([...unopened, key]);
+    if (unopened.has(key)) return;
+    unopened.add(key);
+    commit(unopened);
 };
 
 export const useUnopenedGrades = (): Set<string> => {
-    const [unopened, setUnopened] = useState<string[]>(readUnopenedGrades);
-
+    const unopened = useStorageSync(EVENT, readUnopenedGrades, snapshot);
     useEffect(() => {
-        const handler = () => setUnopened(readUnopenedGrades());
-
-        window.addEventListener(UNOPENED_GRADES_EVENT, handler);
-        window.addEventListener("storage", handler);
-
-        return () => {
-            window.removeEventListener(UNOPENED_GRADES_EVENT, handler);
-            window.removeEventListener("storage", handler);
-        };
+        window.addEventListener("pagehide", refresh);
+        return () => window.removeEventListener("pagehide", refresh);
     }, []);
-
-    // Memoised: a fresh Set on every render would invalidate the callers'
-    // useMemo deps each time, even for users who never enabled the feature
     return useMemo(() => new Set(unopened), [unopened]);
 };

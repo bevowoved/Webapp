@@ -6,7 +6,6 @@ export type PreparedLesson = {
     location: string;
     type: string;
     teacher: string;
-    /** Free text a personal event can carry. */
     notes?: string;
     details: Lesson;
 };

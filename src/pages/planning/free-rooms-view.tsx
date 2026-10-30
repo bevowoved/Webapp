@@ -17,7 +17,7 @@ import {
 import { fadeIn, staggerGroup } from "@/lib/motion";
 import { cn } from "@/lib/utils/cn";
 import { useCampus } from "@/lib/utils/campus";
-import { fetchBuildings, fetchRoomsForBuilding } from "@/lib/api/findmyroom";
+import { fetchBuildings, fetchRoomsForBuilding } from "@/lib/api/helper";
 import {
     computeBookableUntil,
     formatBuildingName,
@@ -31,8 +31,6 @@ import {
 } from "@/lib/utils/findmyroom";
 import { Building, Room } from "@/types/findmyroom";
 
-// Availability thresholds mirrored from findmyroom's own badge logic
-// (>=50% good, >=20% limited, otherwise almost full).
 function getAvailabilityLevel(dispo: number, total: number) {
     if (total === 0) return "unknown";
     const ratio = dispo / total;
@@ -41,7 +39,6 @@ function getAvailabilityLevel(dispo: number, total: number) {
     return "critical";
 }
 
-// Free rooms first, closed ones (nothing to do with them today) last.
 const STATUS_ORDER: Record<Room["statut"], number> = {
     DISPONIBLE: 0,
     OCCUPEE: 1,
@@ -74,7 +71,6 @@ function BuildingCardSkeleton() {
     );
 }
 
-/** Renders a findmyroom sentence with its one figure (time/duration) bolded. */
 function HighlightedText({
     text,
     isEnglish,
@@ -107,8 +103,6 @@ function RoomRow({
 }) {
     const { t } = useTranslation();
     const isFree = room.statut === "DISPONIBLE";
-    // Past its closing time: findmyroom still says "libre jusqu'à 20:00",
-    // which is only noise once that time has gone by.
     const isClosed = room.statut === "FERMEE";
     const info = isEnglish
         ? room.libre_jusqua_en || room.libre_jusqua
@@ -120,8 +114,6 @@ function RoomRow({
         info && duration
             ? computeBookableUntil(info, duration, isEnglish)
             : null;
-    // "Réservable toute la journée" only ever restates "libre jusqu'à
-    // <heure>" shown just above — not worth a second line.
     const showDuration = !!duration && !isRedundantAllDayDuration(duration);
 
     return (
@@ -233,8 +225,6 @@ export function FreeRoomsView() {
         placeholderData: (previousData) => previousData,
     });
 
-    // findmyroom mixes every campus behind one building list: only keep the
-    // buildings of the campus selected in the settings.
     const campusBuildings = useMemo(
         () =>
             buildings.filter((building) =>
@@ -258,7 +248,7 @@ export function FreeRoomsView() {
 
     const sortedRooms = useMemo(() => {
         if (!roomsData?.salles) return [];
-        return [...roomsData.salles].sort((a, b) => {
+        return roomsData.salles.toSorted((a, b) => {
             if (a.statut !== b.statut) {
                 return STATUS_ORDER[a.statut] - STATUS_ORDER[b.statut];
             }
@@ -266,9 +256,6 @@ export function FreeRoomsView() {
         });
     }, [roomsData]);
 
-    // Every room in a building shares a redundant leading code (e.g. all of
-    // IC2's rooms start with "IC2_") that we can drop once the building is
-    // already shown as the drawer's context.
     const roomPrefixTokens = useMemo(
         () => getCommonPrefixTokenCount(sortedRooms.map((room) => room.salle)),
         [sortedRooms]
@@ -306,8 +293,6 @@ export function FreeRoomsView() {
 
                 {!buildingsLoading &&
                     campusBuildings.map((building) => {
-                        // Every room past its closing time: the building is
-                        // closed, not full.
                         const isClosed =
                             building.total > 0 &&
                             (building.fermees ?? 0) >= building.total;

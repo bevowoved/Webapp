@@ -1,4 +1,3 @@
-// pages/secondary/login.tsx
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,6 +12,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { fetchUser, setSession } from "@/lib/api/aurion";
+import { clearLogoutState } from "@/lib/query-client";
 import Meteors from "@/components/ui/shadcn-io/meteors";
 import { Eye, EyeOff, Languages } from "lucide-react";
 import { getFromStorage } from "@/lib/utils/storage";
@@ -51,6 +51,8 @@ export function LoginPage() {
             const response = await fetchUser({ email, password });
 
             if (response?.success) {
+                const prev = getFromStorage("email");
+                if (prev && prev !== email) clearLogoutState(true);
                 setSession(email, password);
 
                 let shouldShowWelcome = false;
@@ -84,10 +86,6 @@ export function LoginPage() {
 
     return (
         <PageTransition>
-            {/* z-0 rather than -z-10: since the "Black bars fix" gave html
-                its own background, the body's background stopped propagating
-                to the canvas and a negative z-index layer now paints *under*
-                it — the meteors were hidden behind the page background. */}
             <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none select-none">
                 <Meteors number={50} />
             </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { format, isToday, isTomorrow, startOfDay } from "date-fns";
+import { format, isToday, isTomorrow, startOfDay } from "@/lib/utils/date-time";
 import { Check, ClipboardListIcon, Clock, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -32,7 +32,6 @@ export function AgendaPage() {
     const [tasks, setTasks] = useState<TaskData[]>(getTasksFromLocalStorage);
     const [formOpen, setFormOpen] = useState(false);
     const [editedTask, setEditedTask] = useState<TaskData | null>(null);
-    // Ticks every minute so tasks slide into "overdue" while the page is open.
     const [now, setNow] = useState(() => new Date());
 
     useEffect(() => {
@@ -49,7 +48,6 @@ export function AgendaPage() {
         setFormOpen(true);
     };
 
-    // Completing and deleting both drop the task, with a way back.
     const removeTask = (task: TaskData, messageKey: string) => {
         removeTaskFromLocalStorage({ taskId: task.id });
         refreshTasks();
@@ -98,7 +96,6 @@ export function AgendaPage() {
 
     const formatDue = (task: TaskData, overdue: boolean) => {
         const time = formatTime(toTime(task.date), hour12);
-        // Overdue tasks share one group: each one needs its own day.
         return overdue
             ? `${format(task.date, "EEE d MMM", { locale })} · ${time}`
             : time;

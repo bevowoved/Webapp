@@ -1,56 +1,55 @@
-import { format, parse } from "date-fns";
+import { format, parseISO, toISODate } from "./date-time";
 import { DS_BY_CLASS } from "@/lib/data/ds";
 import { toDate } from "@/lib/utils/home";
 import { Lesson } from "@/types/aurion";
 
-// What Aurion shows on every DS day until the real subject is published.
 const PLACEHOLDER = /DS selon planning/i;
 
-const DATE_FORMAT = "yyyy-MM-dd";
 const DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss";
 
-/**
- * Swap the generic "DS selon planning" lessons of a CPG2 MPI/PSI planning for
- * the real DS of that day (subject, hours, room) from the hardcoded schedule.
- * Only days Aurion already flags with the placeholder are touched, so a DS
- * Aurion publishes itself is never duplicated. Any other class, or a
- * placeholder on a day the schedule doesn't know, is left as is.
- */
-export function resolveDsLessons(
-    lessons: Lesson[],
-    className: string | null | undefined
-): Lesson[] {
-    const schedule = className ? DS_BY_CLASS[className] : undefined;
+const dsCache = new WeakMap<Lesson[], Map<string, Lesson[]>>();
+
+const parseLocal = (date: string, time: string): Date => {
+    const [y, m, d] = date.split("-").map(Number);
+    const [hh, mm] = time.split(":").map(Number);
+    return new Date(y!, m! - 1, d!, hh ?? 0, mm ?? 0, 0, 0);
+};
+
+export function resolveDsLessons(lessons: Lesson[], className: string | null | undefined): Lesson[] {
+    if (!className) return lessons;
+    const schedule = DS_BY_CLASS[className];
     if (!schedule) return lessons;
+
+    let byClass = dsCache.get(lessons);
+    if (byClass === undefined) {
+        byClass = new Map();
+        dsCache.set(lessons, byClass);
+    }
+    const hit = byClass.get(className);
+    if (hit !== undefined) return hit;
 
     const replaced = new Set<string>();
     const kept = lessons.filter((lesson) => {
         if (!PLACEHOLDER.test(lesson.title)) return true;
-        const day = format(toDate(lesson.start), DATE_FORMAT);
+        const day = toISODate(toDate(lesson.start));
         if (!schedule.exams.some((exam) => exam.date === day)) return true;
         replaced.add(day);
         return false;
     });
-    if (replaced.size === 0) return lessons;
+
+    if (replaced.size === 0) {
+        byClass.set(className, lessons);
+        return lessons;
+    }
 
     const type = "DS_SURV";
     const exams = schedule.exams
         .filter((exam) => replaced.has(exam.date))
         .map<Lesson>((exam) => {
-            const start = parse(
-                `${exam.date} ${exam.start}`,
-                `${DATE_FORMAT} HH:mm`,
-                new Date()
-            );
-            const end = parse(
-                `${exam.date} ${exam.end}`,
-                `${DATE_FORMAT} HH:mm`,
-                new Date()
-            );
+            const start = parseLocal(exam.date, exam.start);
+            const end = parseLocal(exam.date, exam.end);
             return {
                 id: `ds-${className}-${exam.date}-${exam.start}`,
-                // Same newline layout as Aurion lessons, so that
-                // parseFromTitle reads it.
                 title: [schedule.room, exam.subject, type, ""].join("\n"),
                 start: format(start, DATETIME_FORMAT),
                 end: format(end, DATETIME_FORMAT),
@@ -60,5 +59,9 @@ export function resolveDsLessons(
             };
         });
 
-    return [...kept, ...exams];
+    const out = [...kept, ...exams];
+    byClass.set(className, out);
+    return out;
 }
+
+export { parseISO };

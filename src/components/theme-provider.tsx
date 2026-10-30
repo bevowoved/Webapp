@@ -4,7 +4,7 @@ import { pushWidgetTheme } from "@/lib/native/widget";
 import { getFromStorage, saveToStorage } from "@/lib/utils/storage";
 import type React from "react";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, use, useEffect, useState } from "react";
 
 type Theme = "dark" | "light" | "oled" | "cherry" | "pride" | "ocean" | "forest";
 
@@ -38,20 +38,18 @@ export function ThemeProvider({ children }: Readonly<ThemeProviderProps>) {
         );
         root.classList.add(theme);
         saveToStorage("theme", theme);
-        // Les widgets natifs suivent le theme de l'app : no-op hors Android.
         void pushWidgetTheme(theme);
     }, [theme]);
 
     return (
-        <ThemeProviderContext.Provider value={{ theme, setTheme }}>
+        <ThemeProviderContext value={{ theme, setTheme }}>
             {children}
-        </ThemeProviderContext.Provider>
+        </ThemeProviderContext>
     );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => {
-    const context = useContext(ThemeProviderContext);
+    const context = use(ThemeProviderContext);
     if (context === undefined)
         throw new Error("useTheme must be used within a ThemeProvider");
     return context;

@@ -9,6 +9,252 @@ function parseNum(val?: string | null): number {
     return parseFloat(val.replace(",", "."));
 }
 
+export type EvolutionPoint = {
+    date: string;
+    student: number | null;
+    class: number | null;
+    studentAbove?: number | null;
+    studentBelow?: number | null;
+};
+
+export type EvolutionSeries = {
+    key: "student" | "class" | "studentAbove" | "studentBelow";
+    label: string;
+    stroke: string;
+    strokeWidth: number;
+    dash?: string;
+    connectNulls?: boolean;
+};
+
+const CHART_PAD = { top: 6, right: 6, bottom: 16, left: 22 };
+const CHART_H = 144;
+
+export function GradesEvolutionChart({
+    data,
+    series,
+    formatDate,
+    yMax = 20,
+    yTicks = 5,
+    className,
+}: {
+    data: EvolutionPoint[];
+    series: EvolutionSeries[];
+    formatDate: (d: string) => string;
+    yMax?: number;
+    yTicks?: number;
+    className?: string;
+}) {
+    const wrapRef = useRef<HTMLDivElement>(null);
+    const [width, setWidth] = useState(320);
+    const [hover, setHover] = useState<number | null>(null);
+
+    useEffect(() => {
+        const el = wrapRef.current;
+        if (!el) return;
+        const obs = new ResizeObserver((entries) => {
+            const w = entries[0]?.contentRect.width ?? 0;
+            if (w > 0) setWidth(Math.round(w));
+        });
+        obs.observe(el);
+        return () => obs.disconnect();
+    }, []);
+
+    const innerW = Math.max(1, width - CHART_PAD.left - CHART_PAD.right);
+    const innerH = CHART_H - CHART_PAD.top - CHART_PAD.bottom;
+    const n = data.length;
+
+    const xAt = (i: number) =>
+        CHART_PAD.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+    const yAt = (v: number) =>
+        CHART_PAD.top + innerH - (v / yMax) * innerH;
+
+    const paths = useMemo(() => {
+        const xCoord = (i: number) =>
+            CHART_PAD.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+        const yCoord = (v: number) =>
+            CHART_PAD.top + innerH - (v / yMax) * innerH;
+        return series.map((s) => {
+            const segments: string[] = [];
+            let current: string[] = [];
+            for (let i = 0; i < n; i++) {
+                const v = data[i][s.key];
+                if (v === null || v === undefined) {
+                    if (!s.connectNulls) {
+                        if (current.length) segments.push(current.join(" "));
+                        current = [];
+                    }
+                    continue;
+                }
+                const cmd = current.length === 0 ? "M" : "L";
+                current.push(
+                    `${cmd}${xCoord(i).toFixed(2)},${yCoord(v).toFixed(2)}`
+                );
+            }
+            if (current.length) segments.push(current.join(" "));
+            return { key: s.key, stroke: s.stroke, strokeWidth: s.strokeWidth, dash: s.dash, d: segments.join(" ") };
+        });
+    }, [data, series, yMax, innerW, innerH, n]);
+
+    const ticks = useMemo(
+        () =>
+            Array.from({ length: yTicks }, (_, i) =>
+                Math.round((yMax / (yTicks - 1)) * i)
+            ),
+        [yMax, yTicks]
+    );
+
+    const labelEvery = Math.max(1, Math.ceil(n / 4));
+
+    const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        const el = wrapRef.current;
+        if (!el || n === 0) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0) return;
+        const rel = ((e.clientX - rect.left) / rect.width) * width;
+        const t = (rel - CHART_PAD.left) / innerW;
+        const idx = Math.round(t * (n - 1));
+        setHover(Math.max(0, Math.min(n - 1, idx)));
+    };
+
+    const hoverPoint = hover !== null ? data[hover] : null;
+
+    return (
+        <div
+            ref={wrapRef}
+            className={className}
+            style={{ position: "relative" }}
+            onPointerMove={onMove}
+            onPointerLeave={() => setHover(null)}
+        >
+            <svg
+                viewBox={`0 0 ${width} ${CHART_H}`}
+                width="100%"
+                height={CHART_H}
+                role="img"
+                style={{ touchAction: "pan-y", display: "block" }}
+            >
+                {ticks.map((tv) => (
+                    <g key={tv}>
+                        <line
+                            x1={CHART_PAD.left}
+                            x2={width - CHART_PAD.right}
+                            y1={yAt(tv)}
+                            y2={yAt(tv)}
+                            stroke="currentColor"
+                            strokeOpacity={0.12}
+                            strokeWidth={1}
+                        />
+                        <text
+                            x={CHART_PAD.left - 4}
+                            y={yAt(tv) + 3}
+                            textAnchor="end"
+                            fontSize={8}
+                            fill="currentColor"
+                            fillOpacity={0.55}
+                        >
+                            {tv}
+                        </text>
+                    </g>
+                ))}
+
+                {data.map((point, i) =>
+                    i % labelEvery === 0 || i === n - 1 ? (
+                        <text
+                            key={`${point.date}-${i}`}
+                            x={xAt(i)}
+                            y={CHART_H - 4}
+                            textAnchor="middle"
+                            fontSize={8}
+                            fill="currentColor"
+                            fillOpacity={0.55}
+                        >
+                            {formatDate(point.date)}
+                        </text>
+                    ) : null
+                )}
+
+                {paths.map((p) =>
+                    p.d ? (
+                        <path
+                            key={p.key}
+                            d={p.d}
+                            fill="none"
+                            stroke={p.stroke}
+                            strokeWidth={p.strokeWidth}
+                            strokeDasharray={p.dash}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            vectorEffect="non-scaling-stroke"
+                        />
+                    ) : null
+                )}
+
+                {hover !== null && (
+                    <g>
+                        <line
+                            x1={xAt(hover)}
+                            x2={xAt(hover)}
+                            y1={CHART_PAD.top}
+                            y2={CHART_PAD.top + innerH}
+                            stroke="currentColor"
+                            strokeOpacity={0.3}
+                            strokeWidth={1}
+                            strokeDasharray="3 3"
+                        />
+                        {series.map((s) => {
+                            const v = data[hover][s.key];
+                            if (v === null || v === undefined) return null;
+                            return (
+                                <circle
+                                    key={s.key}
+                                    cx={xAt(hover)}
+                                    cy={yAt(v)}
+                                    r={2.5}
+                                    fill={s.stroke}
+                                />
+                            );
+                        })}
+                    </g>
+                )}
+            </svg>
+
+            {hoverPoint && (
+                <div
+                    className="pointer-events-none absolute z-10 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl space-y-1"
+                    style={{
+                        left: `${(xAt(hover!) / width) * 100}%`,
+                        top: 0,
+                        transform:
+                            hover! > n / 2
+                                ? "translateX(-105%)"
+                                : "translateX(5%)",
+                    }}
+                >
+                    <p className="font-medium">{formatDate(hoverPoint.date)}</p>
+                    {series.map((s) => {
+                        const v = hoverPoint[s.key];
+                        if (v === null || v === undefined) return null;
+                        return (
+                            <div key={s.key} className="flex items-center gap-2">
+                                <div
+                                    className="h-2 w-2 shrink-0 rounded-[2px]"
+                                    style={{ backgroundColor: s.stroke }}
+                                />
+                                <span className="text-muted-foreground">
+                                    {s.label}
+                                </span>
+                                <span className="ml-auto pl-3 font-mono font-medium tabular-nums">
+                                    {Number(v).toFixed(2)}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function GradePositionSlider({ grade }: { grade: Grade }) {
     const { t } = useTranslation();
     const trackRef = useRef<HTMLDivElement>(null);
@@ -38,12 +284,17 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
     const isAboveAverage = !isNaN(avg) && myGrade >= avg;
     const accentColor = isAboveAverage ? "hsl(142 70% 45%)" : "hsl(0 70% 55%)";
 
-    const classMarkers = useMemo(() => [
-        { value: min, label: t("gradesPage.min") },
-        { value: avg, label: t("gradesPage.average") },
-        { value: median, label: t("gradesPage.median") },
-        { value: max, label: t("gradesPage.max") },
-    ].filter((m) => !isNaN(m.value) && m.value > 0), [min, avg, median, max, t]);
+    const labelMin = t("gradesPage.min");
+    const labelAverage = t("gradesPage.average");
+    const labelMedian = t("gradesPage.median");
+    const labelMax = t("gradesPage.max");
+
+    const classMarkers = [
+        { value: min, label: labelMin },
+        { value: avg, label: labelAverage },
+        { value: median, label: labelMedian },
+        { value: max, label: labelMax },
+    ].filter((m) => !isNaN(m.value) && m.value > 0);
 
     const sd = parseNum(grade.standardDeviation);
     const sdStart = !isNaN(avg) && !isNaN(sd) ? Math.max(0, avg - sd) : null;
@@ -56,7 +307,7 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
     const GAP = 4;
     const ROW_H = 14;
 
-    const { numbersAbove, placedMarkers, maxRow } = useMemo(() => {
+    const markerLayout = (() => {
         const halfW = (text: string) => (text.length * CHAR_W) / 2;
         const overlapsH = (posA: number, labelA: string, posB: number, labelB: string) => {
             const pxA = (posA / 100) * trackW;
@@ -64,10 +315,10 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
             return Math.abs(pxA - pxB) < halfW(labelA) + halfW(labelB) + GAP;
         };
 
-        const sorted = [...classMarkers].sort((a, b) => a.value - b.value);
+        const sorted = classMarkers.toSorted((a, b) => a.value - b.value);
 
         const numbersAbove = sorted.reduce<Array<{ value: number; label: string; visible: boolean }>>((acc, m) => {
-            const lastVisible = [...acc].reverse().find((p) => p.visible);
+            const lastVisible = acc.findLast((p) => p.visible);
             const visible =
                 !lastVisible ||
                 !overlapsH(
@@ -92,7 +343,9 @@ export function GradePositionSlider({ grade }: { grade: Grade }) {
 
         const maxRow = placedMarkers.reduce((max, m) => Math.max(max, m.row), 0);
         return { numbersAbove, placedMarkers, maxRow };
-    }, [classMarkers, trackW, scale]);
+    })();
+
+    const { numbersAbove, placedMarkers, maxRow } = markerLayout;
 
     if (isNaN(myGrade)) return null;
 

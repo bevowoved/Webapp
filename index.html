@@ -2,10 +2,10 @@
 <html lang="en" class="light">
     <head>
         <meta charset="UTF-8" />
+        <link rel="preconnect" href="https://mauria-api.fly.dev" crossorigin />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" type="image/webp" href="/icon.webp" />
         <script>
-            // Apply the stored theme before paint to avoid a flash.
-            // Defaults to "light" when nothing is stored (system pref ignored).
             (function () {
                 try {
                     var t = localStorage.getItem("theme") || "light";
@@ -27,7 +27,7 @@
             name="viewport"
             content="width=device-width, initial-scale=1.0, viewport-fit=cover"
         />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <title>Mauria</title>
     </head>

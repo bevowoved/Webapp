@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowDown, ArrowUp, KeyRound, Package, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -10,11 +10,22 @@ import {
     GRADE_SCALE,
     formatGradeValue,
     getRarityForGrade,
-    randomGradeValue,
+    gradeValueFrom,
     type GradeRarity,
-} from "@/lib/utils/grade-rarity";
-import { playSound } from "@/lib/utils/sfx";
-import { useGradeReveal, type GradeReveal } from "./use-grade-reveal";
+} from "@/lib/utils/grades";
+import { playSound, triggerHapticPattern } from "@/lib/utils/sfx";
+import {
+    formatDelta,
+    hashSeed,
+    mulberry32,
+    TREND_BADGE_CLASS,
+    TREND_LABEL_CLASS,
+    TREND_VALUE_CLASS,
+    trendBadgeStyle,
+    trendLabelKey,
+    useGradeReveal,
+    type GradeReveal,
+} from "./use-grade-reveal";
 
 const ITEM_WIDTH = 104;
 const ITEM_HEIGHT = 136;
@@ -23,20 +34,13 @@ const PITCH = ITEM_WIDTH + ITEM_GAP;
 const REEL_LENGTH = 64;
 const WINNER_INDEX = 58;
 const SPIN_DURATION = 6.2;
-/** Closer ticks than this blur into one buzz at full reel speed */
+
 const MIN_TICK_GAP_MS = 30;
-/** Shake, latches, lid: how long the case takes to open before the reel */
+
 const UNLOCK_MS = 1100;
-/** How long the winner sits on the reel before the drop screen */
+
 const LANDED_HOLD_MS = 1000;
 
-/**
- * case: sealed, waiting for the unlock button
- * unlocking: the lid flies off
- * spin: the reel runs
- * landed: the reel stopped on the winner
- * drop: the item showcase
- */
 type Phase = "case" | "unlocking" | "spin" | "landed" | "drop";
 
 type ReelItem = { value: number; rarity: GradeRarity };
@@ -48,34 +52,27 @@ const makeItem = (value: number): ReelItem => ({
     rarity: getRarityForGrade(value),
 });
 
-const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(pattern);
-    }
-};
+const vibrate = (pattern: number | number[]) => triggerHapticPattern(pattern);
 
-/**
- * Weapon-drop sparks thrown off the winning item: hot streaks that arc down
- * under gravity. The rarer the grade, the bigger the shower.
- */
 function DropSparks({ rarity }: { rarity: GradeRarity }) {
     const tier = GRADE_RARITIES.indexOf(rarity);
 
     const sparks = useMemo(() => {
+        const random = mulberry32(hashSeed(rarity.id, tier, "sparks"));
         const count = 8 + tier * 5;
         return Array.from({ length: count }, (_, index) => {
-            const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.6;
-            const speed = 90 + Math.random() * (60 + tier * 25);
+            const angle = -Math.PI / 2 + (random() - 0.5) * Math.PI * 1.6;
+            const speed = 90 + random() * (60 + tier * 25);
             return {
                 dx: Math.cos(angle) * speed,
                 dy: Math.sin(angle) * speed,
-                length: 6 + Math.random() * 10,
-                duration: 0.7 + Math.random() * 0.5,
-                delay: Math.random() * 0.12,
+                length: 6 + random() * 10,
+                duration: 0.7 + random() * 0.5,
+                delay: random() * 0.12,
                 color: index % 3 === 0 ? "#fde68a" : rarity.color,
             };
         });
-    }, [tier, rarity.color]);
+    }, [tier, rarity.color, rarity.id]);
 
     return (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10">
@@ -90,7 +87,7 @@ function DropSparks({ rarity }: { rarity: GradeRarity }) {
                     }}
                     initial={{ x: 0, y: 0, opacity: 1, rotate: 0 }}
                     animate={{
-                        // Out along the angle, then gravity takes over
+
                         x: [0, spark.dx * 0.7, spark.dx],
                         y: [0, spark.dy * 0.6, spark.dy + 90],
                         rotate: [
@@ -111,7 +108,6 @@ function DropSparks({ rarity }: { rarity: GradeRarity }) {
     );
 }
 
-/** The "0 – 8", "18 – 20" … span covered by each rarity tier. */
 function rarityRange(index: number): string {
     const min = GRADE_RARITIES[index]!.min;
     const max = GRADE_RARITIES[index + 1]?.min ?? GRADE_SCALE;
@@ -127,17 +123,17 @@ const CornerBrackets = () => (
     </>
 );
 
-/**
- * Rays spinning behind the case or the drop: 16 rays split into 4
- * interleaved groups, each turning at a slightly different speed so the
- * beams slowly drift apart and together. A 90deg period never shows a seam.
- */
-const RAY_LAYERS = [
-    { ray: 7, period: 90, from: 0, duration: 30, turn: 360, opacity: 1 },
-    { ray: 7, period: 90, from: 22.5, duration: 33, turn: 360, opacity: 1 },
-    { ray: 7, period: 90, from: 45, duration: 27, turn: 360, opacity: 1 },
-    { ray: 7, period: 90, from: 67.5, duration: 36, turn: 360, opacity: 1 },
-];
+const RAY_COUNT = 4;
+const RAY_PERIOD = 90;
+
+const RAY_LAYERS = Array.from({ length: RAY_COUNT }, (_, index) => ({
+    ray: 7,
+    period: RAY_PERIOD,
+    from: (RAY_PERIOD / RAY_COUNT) * index,
+    duration: [30, 33, 27, 36][index]!,
+    turn: 360,
+    opacity: 1,
+}));
 
 function SpinningRays({ color, opacity }: { color: string; opacity: number }) {
     const reducedMotion = useReducedMotion();
@@ -175,10 +171,6 @@ function SpinningRays({ color, opacity }: { color: string; opacity: number }) {
     );
 }
 
-/**
- * The "skin" of an item: a grade has no weapon, so the grade is the artwork,
- * on a finish tinted to its rarity. Gold gets its own shining finish.
- */
 function ItemArt({
     rarity,
     value,
@@ -206,8 +198,7 @@ function ItemArt({
                             "repeating-conic-gradient(from 0deg at 50% 42%, rgba(255,255,255,0.22) 0deg 6deg, transparent 6deg 18deg)",
                     }}
                 />
-                {/* Light sweeping across the gold leaf (the drop card
-                    already runs its own sweep) */}
+
                 {!large && !reducedMotion && (
                     <span
                         className="absolute inset-y-0 left-0 w-1/2"
@@ -219,9 +210,7 @@ function ItemArt({
                     />
                 )}
                 <span
-                    className={`relative font-mono font-black leading-none text-white ${
-                        large ? "text-6xl" : "text-[1.85rem]"
-                    }`}
+                    className={VALUE_CLASS(large)}
                     style={{
                         textShadow:
                             "0 0 14px rgba(255,255,255,0.9), 0 2px 0 #7c5a12, 0 3px 6px rgba(107,76,14,0.8)",
@@ -229,11 +218,7 @@ function ItemArt({
                 >
                     {value}
                 </span>
-                <span
-                    className={`relative font-mono font-bold tracking-widest text-[#5b3f08] ${
-                        large ? "text-lg" : "text-[10px]"
-                    }`}
-                >
+                <span className={`${SCALE_CLASS(large)} font-bold text-[#5b3f08]`}>
                     {`/${GRADE_SCALE}`}
                 </span>
             </div>
@@ -247,7 +232,7 @@ function ItemArt({
                 background: `radial-gradient(ellipse 85% 70% at 50% 112%, ${rarity.color}bb, ${rarity.color}22 55%, transparent 80%), linear-gradient(180deg, #2c303b, #15171d)`,
             }}
         >
-            {/* Finish: diagonal pattern tinted to the rarity */}
+
             <span
                 className="absolute inset-0 opacity-70"
                 style={{
@@ -259,20 +244,14 @@ function ItemArt({
                 style={{ background: rarity.glow, opacity: 0.4 }}
             />
             <span
-                className={`relative font-mono font-black leading-none text-white ${
-                    large ? "text-6xl" : "text-[1.85rem]"
-                }`}
+                className={VALUE_CLASS(large)}
                 style={{
                     textShadow: `0 0 18px ${rarity.glow}, 0 2px 0 rgba(0,0,0,0.55)`,
                 }}
             >
                 {value}
             </span>
-            <span
-                className={`relative font-mono tracking-widest text-white/50 ${
-                    large ? "text-lg" : "text-[10px]"
-                }`}
-            >
+            <span className={`${SCALE_CLASS(large)} text-white/50`}>
                 {`/${GRADE_SCALE}`}
             </span>
         </div>
@@ -316,15 +295,13 @@ function ReelItemCard({
                 }}
             />
             <span className="shrink-0 truncate px-1.5 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-400">
-                {/* Short name on the narrow reel cards, the drop keeps the
-                    full one */}
+
                 {t(rarity.shortLabelKey)}
             </span>
         </div>
     );
 }
 
-/** What the case can drop, one tile per rarity, like the CS2 case preview */
 function CaseContents() {
     const { t } = useTranslation();
 
@@ -376,12 +353,11 @@ function CaseContents() {
     );
 }
 
-/** Case size, in CSS pixels: handle + lid + body */
 const CASE_HANDLE = 16;
 const CASE_LID = 48;
 const CASE_BODY = 112;
 const CASE_HEIGHT = CASE_HANDLE + CASE_LID + CASE_BODY;
-/** Room around the case in the canvas: the lid flies up, the shadow drops */
+
 const PAD_X = 24;
 const PAD_TOP = 120;
 const PAD_BOTTOM = 60;
@@ -397,7 +373,6 @@ const easeInOut = (x: number) =>
     x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** Linear interpolation through evenly spaced keyframes */
 const keyframes = (values: number[], progress: number) => {
     const position = clamp01(progress) * (values.length - 1);
     const index = Math.min(values.length - 2, Math.floor(position));
@@ -417,7 +392,6 @@ const metalGradient = (
     return gradient;
 };
 
-/** Diagonal brushed finish, clipped to the current path */
 const hatch = (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -438,7 +412,6 @@ const hatch = (
     ctx.restore();
 };
 
-/** Letter-spaced text, done by hand: canvas letterSpacing is not everywhere */
 const spacedText = (
     ctx: CanvasRenderingContext2D,
     text: string,
@@ -459,7 +432,7 @@ const spacedText = (
 };
 
 type CaseState = {
-    /** ms since the unlock started, null while sealed */
+
     openedFor: number | null;
     float: number;
 };
@@ -468,7 +441,6 @@ const LABEL_HEIGHT = 18;
 
 const stickerWidthFor = (width: number) => width * 0.64;
 
-/** The sticker's case name, drawn once into its own canvas */
 function renderLabel(
     label: string,
     font: string,
@@ -514,12 +486,11 @@ function drawCase(
     const bodyTop = lidTop + CASE_LID;
 
     ctx.save();
-    // Shake around the case center
+
     ctx.translate(x0 + width / 2 + shakeX, y0 + CASE_HEIGHT / 2);
     ctx.rotate((shakeDeg * Math.PI) / 180);
     ctx.translate(-(x0 + width / 2), -(y0 + CASE_HEIGHT / 2));
 
-    // Body, with its drop shadow
     const body = new Path2D();
     body.roundRect(x0, bodyTop, width, CASE_BODY, [0, 0, 12, 12]);
     const bodyFill = ctx.createLinearGradient(
@@ -544,7 +515,7 @@ function drawCase(
     ctx.beginPath();
     ctx.rect(x0, bodyTop, width, CASE_BODY);
     hatch(ctx, x0, bodyTop, width, CASE_BODY);
-    // Inner shading: dark seam on top, heavy bottom
+
     ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(x0, bodyTop, width, 2);
     const bottomShade = ctx.createLinearGradient(
@@ -557,13 +528,12 @@ function drawCase(
     bottomShade.addColorStop(1, "rgba(0,0,0,0.5)");
     ctx.fillStyle = bottomShade;
     ctx.fillRect(x0, bodyTop + CASE_BODY - 16, width, 16);
-    // Metal corners
+
     ctx.fillStyle = metalGradient(ctx, bodyTop + CASE_BODY - 12, 12);
     ctx.fillRect(x0, bodyTop + CASE_BODY - 12, 12, 12);
     ctx.fillRect(x0 + width - 12, bodyTop + CASE_BODY - 12, 12, 12);
     ctx.restore();
 
-    // Sticker: case name over the rarity stripe
     const stickerX = x0 + width * 0.18;
     const stickerWidth = stickerWidthFor(width);
     const stickerHeight = 36;
@@ -576,8 +546,6 @@ function drawCase(
     ctx.lineWidth = 1;
     ctx.stroke(sticker);
 
-    // Pre-rendered: Firefox snaps glyphs to whole pixels even on a canvas,
-    // a pasted image is interpolated at the fractional position instead
     ctx.drawImage(
         labelImage,
         stickerX + 8,
@@ -604,7 +572,6 @@ function drawCase(
     });
     ctx.restore();
 
-    // Latches over the seam, flipping open one after the other
     [width * 0.16, width * 0.84 - 16].forEach((offset, index) => {
         const flip =
             t < 0 ? 0 : easeOut(clamp01((t - 250 - index * 100) / 200));
@@ -627,7 +594,6 @@ function drawCase(
         ctx.restore();
     });
 
-    // Lid and handle, thrown off once the latches are open
     const lift = t < 0 ? 0 : easeIn(clamp01((t - 550) / 450));
     if (lift < 1) {
         const pivotX = x0 + width / 2;
@@ -638,7 +604,6 @@ function drawCase(
         ctx.rotate((-14 * lift * Math.PI) / 180);
         ctx.translate(-pivotX, -pivotY);
 
-        // Handle: an open loop on top of the lid
         const handleWidth = width * 0.34;
         const handleX = x0 + (width - handleWidth) / 2;
         ctx.strokeStyle = "#71717a";
@@ -674,7 +639,7 @@ function drawCase(
         ctx.beginPath();
         ctx.rect(x0, lidTop, width, CASE_LID);
         hatch(ctx, x0, lidTop, width, CASE_LID);
-        // Ridges
+
         ctx.fillStyle = "rgba(0,0,0,0.18)";
         for (let y = lidTop; y < lidTop + CASE_LID; y += 9) {
             ctx.fillRect(x0, y, width, 2);
@@ -694,14 +659,6 @@ function drawCase(
     ctx.restore();
 }
 
-/**
- * The weapon case: olive crate with a carry handle, two latches and the
- * Mauria sticker. Opening shakes it, flips the latches and throws the lid.
- *
- * Drawn on a canvas rather than in the DOM: Firefox snaps animated DOM
- * transforms to whole pixels, so the slow float stepped instead of drifting.
- * A canvas draws at fractional coordinates.
- */
 function WeaponCase({ opening }: { opening: boolean }) {
     const { t } = useTranslation();
     const reducedMotion = useReducedMotion();
@@ -711,9 +668,16 @@ function WeaponCase({ opening }: { opening: boolean }) {
     const openedAt = useRef<number | null>(null);
     const animated = opening && !reducedMotion;
 
-    if (animated && openedAt.current === null) {
+    useEffect(() => {
+        if (!animated) return;
+        if (openedAt.current !== null) return;
         openedAt.current = performance.now();
-    }
+    }, [animated]);
+
+    useEffect(() => {
+        if (animated) return;
+        openedAt.current = null;
+    }, [animated]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -754,7 +718,7 @@ function WeaponCase({ opening }: { opening: boolean }) {
 
     return (
         <div className="relative" style={{ width, height: CASE_HEIGHT }}>
-            {/* Light escaping above the seam, behind the lid */}
+
             <motion.span
                 className="pointer-events-none absolute left-1/2 h-56 w-[120%] -translate-x-1/2 -translate-y-full"
                 style={{
@@ -784,7 +748,6 @@ function WeaponCase({ opening }: { opening: boolean }) {
                 }}
             />
 
-            {/* The seam lighting up as the latches give */}
             <motion.span
                 className="pointer-events-none absolute inset-x-[4%] h-1 -translate-y-1/2 rounded-full bg-white"
                 style={{
@@ -807,7 +770,6 @@ function WeaponCase({ opening }: { opening: boolean }) {
     );
 }
 
-/** The CS2 drop screen: the won item on show, under spinning rays. */
 function DropShowcase({
     grade,
     reveal,
@@ -920,11 +882,8 @@ function DropShowcase({
             >
                 {delta !== null && (
                     <div
-                        className="flex items-center gap-2 rounded-sm px-3 py-1.5"
-                        style={{
-                            backgroundColor: `${trendColor}1f`,
-                            boxShadow: `inset 0 0 0 1px ${trendColor}66`,
-                        }}
+                        className={TREND_BADGE_CLASS}
+                        style={trendBadgeStyle(trendColor)}
                     >
                         {above ? (
                             <ArrowUp
@@ -938,20 +897,16 @@ function DropShowcase({
                             />
                         )}
                         <span
-                            className="font-mono text-[11px] font-bold uppercase tracking-wider"
+                            className={TREND_LABEL_CLASS}
                             style={{ color: trendColor }}
                         >
-                            {t(
-                                above
-                                    ? "gradesPage.caseOpening.aboveAverage"
-                                    : "gradesPage.caseOpening.belowAverage"
-                            )}
+                            {t(trendLabelKey(above))}
                         </span>
                         <span
-                            className="font-mono text-[11px] font-bold"
+                            className={TREND_VALUE_CLASS}
                             style={{ color: trendColor }}
                         >
-                            {`${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(2)}`}
+                            {formatDelta(delta)}
                         </span>
                     </div>
                 )}
@@ -973,7 +928,32 @@ function DropShowcase({
     );
 }
 
-/** Full-screen CS2-style case opening for an unopened grade. */
+const OVERLAY_STYLE: CSSProperties = {
+    paddingTop: "var(--safe-area-top)",
+    paddingBottom: "var(--safe-area-bottom)",
+    backgroundColor: "#05070b",
+};
+
+const BACKDROP_STYLE: CSSProperties = {
+    backgroundImage:
+        "repeating-linear-gradient(135deg, rgba(255,255,255,0.022) 0 8px, transparent 8px 16px), repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 4px), radial-gradient(ellipse at 50% 42%, #16202e 0%, #05070b 70%)",
+};
+
+const VIGNETTE_STYLE: CSSProperties = { boxShadow: "inset 0 0 160px 40px rgba(0,0,0,0.9)" };
+
+const FADE_IN_OUT = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.45, ease: "easeInOut" } } as const;
+
+const TICKER_ARROW: CSSProperties = {
+    borderLeft: "7px solid transparent",
+    borderRight: "7px solid transparent",
+};
+
+const VALUE_CLASS = (large?: boolean) =>
+    `relative font-mono font-black leading-none text-white ${large ? "text-6xl" : "text-[1.85rem]"}`;
+
+const SCALE_CLASS = (large?: boolean) =>
+    `relative font-mono tracking-widest ${large ? "text-lg" : "text-[10px]"}`;
+
 export function CaseOpening({
     grade,
     onClose,
@@ -991,21 +971,19 @@ export function CaseOpening({
     const [containerWidth, setContainerWidth] = useState(0);
     const [phase, setPhase] = useState<Phase>("case");
 
-    // Covert / gold get the full CS2 treatment: flash, rings and a shake
     const reveal = useGradeReveal(grade);
     const { value: wonValue, rarity: wonRarity, bigWin } = reveal;
 
     const { items, jitter } = useMemo(() => {
-        const reel = Array.from({ length: REEL_LENGTH }, () =>
-            makeItem(randomGradeValue())
-        );
+        const random = mulberry32(hashSeed(grade.date, grade.code, grade.name, wonValue ?? "none"));
+        const reel = Array.from({ length: REEL_LENGTH }, () => makeItem(gradeValueFrom(random)));
         if (wonValue !== null) reel[WINNER_INDEX] = makeItem(wonValue);
-        // Never land dead-center: CS2 always stops slightly off the ticker
+
         return {
             items: reel,
-            jitter: Math.round((Math.random() - 0.5) * ITEM_WIDTH * 0.6),
+            jitter: Math.round((random() - 0.5) * ITEM_WIDTH * 0.6),
         };
-    }, [wonValue]);
+    }, [wonValue, grade.date, grade.code, grade.name]);
 
     useLayoutEffect(() => {
         const measure = () =>
@@ -1017,8 +995,7 @@ export function CaseOpening({
 
     const targetX =
         -(WINNER_INDEX * PITCH + ITEM_WIDTH / 2 - containerWidth / 2) + jitter;
-    // Nothing to spin for (unparseable grade or reduced motion): the unlock
-    // goes straight to the drop
+
     const canSpin = containerWidth > 0 && !reducedMotion && wonValue !== null;
     const landed = phase === "landed" || phase === "drop";
 
@@ -1044,8 +1021,6 @@ export function CaseOpening({
         }
     }, [phase, bigWin]);
 
-    // Every item crossing the ticker flashes it, like the CS2 reel "tick".
-    // Straight through the DOM: this fires dozens of times per spin.
     const onReelUpdate = (latest: { x?: unknown }) => {
         if (typeof latest.x !== "number") return;
         const tick = Math.floor((containerWidth / 2 - latest.x) / PITCH);
@@ -1061,7 +1036,7 @@ export function CaseOpening({
             ],
             { duration: 220, easing: "ease-out" }
         );
-        // At full speed this would be one long buzz: cap the tick rate
+
         const now = performance.now();
         if (now - lastTickSound.current > MIN_TICK_GAP_MS) {
             lastTickSound.current = now;
@@ -1076,24 +1051,14 @@ export function CaseOpening({
     return (
         <motion.div
             className="fixed inset-0 z-100 flex flex-col items-center justify-center overflow-hidden px-6"
-            style={{
-                paddingTop: "var(--safe-area-top)",
-                paddingBottom: "var(--safe-area-bottom)",
-                backgroundColor: "#05070b",
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45, ease: "easeInOut" }}
+            style={OVERLAY_STYLE}
+            {...FADE_IN_OUT}
             onClick={phase === "drop" ? onClose : undefined}
         >
-            {/* Case-opening backdrop: hatching, scanlines and a rarity glow */}
+
             <div
                 className="pointer-events-none absolute inset-0"
-                style={{
-                    backgroundImage:
-                        "repeating-linear-gradient(135deg, rgba(255,255,255,0.022) 0 8px, transparent 8px 16px), repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 4px), radial-gradient(ellipse at 50% 42%, #16202e 0%, #05070b 70%)",
-                }}
+                style={BACKDROP_STYLE}
             />
             <div
                 className="pointer-events-none absolute inset-0 transition-opacity duration-700"
@@ -1104,9 +1069,7 @@ export function CaseOpening({
             />
             <div
                 className="pointer-events-none absolute inset-0"
-                style={{
-                    boxShadow: "inset 0 0 160px 40px rgba(0,0,0,0.9)",
-                }}
+                style={VIGNETTE_STYLE}
             />
 
             <AnimatePresence>
@@ -1157,7 +1120,6 @@ export function CaseOpening({
                     </div>
                 </div>
 
-                {/* Always mounted, so the reel width is known before it runs */}
                 <div
                     ref={containerRef}
                     className="relative flex w-full flex-col items-center"
@@ -1198,9 +1160,7 @@ export function CaseOpening({
                                         onClick={unlock}
                                     >
                                         {!reducedMotion && (
-                                            // A ring pushed out by the same
-                                            // distance on every side, not scaled:
-                                            // a wide button would grow sideways
+
                                             <motion.span
                                                 className="pointer-events-none absolute rounded-md border-2 border-amber-300"
                                                 initial={{
@@ -1298,27 +1258,15 @@ export function CaseOpening({
                                     <div
                                         ref={tickerGlowRef}
                                         className="pointer-events-none absolute inset-y-0 left-1/2 w-2 bg-amber-300 opacity-0 blur-[3px]"
-                                        style={{
-                                            transform: "translateX(-50%)",
-                                        }}
+                                        style={{ transform: "translateX(-50%)" }}
                                     />
                                     <div
                                         className="pointer-events-none absolute left-1/2 top-0 size-0 -translate-x-1/2"
-                                        style={{
-                                            borderLeft: "7px solid transparent",
-                                            borderRight:
-                                                "7px solid transparent",
-                                            borderTop: "10px solid #fbbf24",
-                                        }}
+                                        style={{ ...TICKER_ARROW, borderTop: "10px solid #fbbf24" }}
                                     />
                                     <div
                                         className="pointer-events-none absolute bottom-0 left-1/2 size-0 -translate-x-1/2"
-                                        style={{
-                                            borderLeft: "7px solid transparent",
-                                            borderRight:
-                                                "7px solid transparent",
-                                            borderBottom: "10px solid #fbbf24",
-                                        }}
+                                        style={{ ...TICKER_ARROW, borderBottom: "10px solid #fbbf24" }}
                                     />
                                 </div>
                             </motion.div>

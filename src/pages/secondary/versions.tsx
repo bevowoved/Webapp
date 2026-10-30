@@ -5,7 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UpdateDrawer } from "@/components/update-drawer";
-import { fetchUpdates } from "@/lib/api/supa";
+import { fetchUpdates } from "@/lib/api/helper";
 import { useQuery } from "@tanstack/react-query";
 import { UpdatesEntry } from "@/types/data";
 import { useTranslation } from "react-i18next";

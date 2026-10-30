@@ -15,7 +15,6 @@ import {
     useWelcomePrefetch,
 } from "@/lib/hooks/use-welcome-prefetch";
 
-// Gentle cascade, same feel as the other first-launch pages.
 const preparingStagger = {
     hidden: {},
     show: { transition: { delayChildren: 0.15, staggerChildren: 0.12 } },
@@ -29,22 +28,12 @@ type QueryRow = {
     progress: number;
 };
 
-/**
- * Third first-launch page, reached from the campus selection when the
- * background prefetch hasn't finished yet. Shows the Aurion warm-up and
- * every prefetch query as a green check (done) or a progress ring with
- * its fake percentage (elapsed vs the expected duration), with the
- * loading tips cycling below. Enters the app automatically once all of
- * them have settled — success or error alike.
- */
 export function PreparingPage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
     const status = useJuniaStatus();
     const { results, warm } = useWelcomePrefetch();
 
-    // Loading tips, cycling in a shuffled order without repeating
-    // back-to-back — moved here from the welcome screen.
     const tips = t("welcome.tips", { returnObjects: true }) as string[];
     const [tipOrder] = useState(() => {
         const idx = tips.map((_, i) => i);
@@ -61,7 +50,6 @@ export function PreparingPage() {
         warm.status === "pending" ||
         results.some((result) => result.status === "pending");
 
-    // Recompute the fake percentages while something is still fetching.
     const [, setTick] = useState(0);
     useEffect(() => {
         if (!anyPending) return;
@@ -69,15 +57,12 @@ export function PreparingPage() {
         return () => window.clearInterval(id);
     }, [anyPending]);
 
-    // Cycle through the loading tips while the data is being fetched.
     useEffect(() => {
         if (!anyPending) return;
         const id = window.setInterval(() => setTipStep((s) => s + 1), 2800);
         return () => window.clearInterval(id);
     }, [anyPending]);
 
-    // Everything settled: a short beat to let the last checkmarks land,
-    // then straight to the home page.
     useEffect(() => {
         if (anyPending) return;
         const id = window.setTimeout(() => {
@@ -87,8 +72,6 @@ export function PreparingPage() {
         return () => window.clearTimeout(id);
     }, [anyPending, navigate]);
 
-    // The warm-up first (the prefetches queue behind it), then each
-    // prefetch in start order.
     const rows: QueryRow[] = [
         {
             key: "warm",

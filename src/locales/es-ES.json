@@ -116,6 +116,7 @@
     },
     "languageParameter": {
       "title": "Idioma",
+      "aria": "Selector de idioma",
       "english": "Inglés",
       "french": "Francés",
       "spanish": "Español",
@@ -163,6 +164,8 @@
   },
   "homePage": {
     "title": "¡Hola",
+    "welcome": "a ti",
+    "welcomeMessage": ", ¡Bienvenido a Mauria!",
     "nextClasses": "Próximas clases",
     "nextClassesEmptyState": "Nada por hoy ni mañana, ¡disfruta de tu descanso y tiempo libre!",
     "loadingSchedule": "Cargando datos del horario…",
@@ -208,7 +211,6 @@
       "SEMINAIRE": "Seminario",
       "DS": "Examen"
     },
-    "welcome": ", ¡Bienvenido a Mauria!",
     "restaurants": {
       "title": "Menú del día",
       "menuOf": "Menú del {{date}}",
