@@ -135,14 +135,18 @@ describe("abbreviateSubjects", () => {
         expect(abbreviateSubjects("Xinformatique")).toBe("Xinformatique");
     });
 
-    it("does not abbreviate a subject that is only a prefix of the word", () => {
-        // BUG: the pattern is anchored at the start of a word but not at the
-        // end, so `anglais` matches the first seven letters of "Anglaise" and
-        // leaves a stray "e": "Civilisation Angl.e".
-        expect(abbreviateSubjects("Civilisation Anglaise")).toBe("Civilisation Anglaise");
-        expect(abbreviateSubjects("Littérature anglaise")).toBe("Littérature anglaise");
-        expect(abbreviateSubjects("Espagnole")).toBe("Espagnole");
-        expect(abbreviateSubjects("Allemande")).toBe("Allemande");
+    it("abbreviates gendered forms without stranding a suffix", () => {
+        // The patterns were originally anchored at the start of a word but not at
+        // the end, so `anglais` matched the first seven letters of "Anglaise" and
+        // left a stray "e": "Civilisation Angl.e". The suffix is now part of the
+        // pattern, so the whole word is replaced and no letter survives.
+        expect(abbreviateSubjects("Civilisation Anglaise")).toBe("Civilisation Angl.");
+        expect(abbreviateSubjects("Littérature anglaise")).toBe("Littérature Angl.");
+        expect(abbreviateSubjects("Espagnole")).toBe("Esp.");
+        expect(abbreviateSubjects("Allemande")).toBe("All.");
+        for (const input of ["Civilisation Anglaise", "Espagnole", "Allemande"]) {
+            expect(abbreviateSubjects(input)).not.toMatch(/(Angl|Esp|All)\.\p{L}/u);
+        }
     });
 
     it("still abbreviates the exact subject word", () => {

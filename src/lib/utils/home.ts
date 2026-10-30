@@ -115,9 +115,14 @@ const subjectAbbreviations: Array<{ match: RegExp; key: string }> = [
     { match: /sciences?\s+physiques?/gi, key: "physics" },
     { match: /physiques?(?:[\s-]+chimies?)?/gi, key: "physics" },
     { match: /informatiques?/gi, key: "computerScience" },
-    { match: /anglais/gi, key: "english" },
-    { match: /espagnol/gi, key: "spanish" },
-    { match: /allemand/gi, key: "german" },
+    // These three are bare adjectives with no built-in inflection, unlike the
+    // patterns above which already carry optional feminine/plural endings.
+    // French subjects routinely end in the feminine ("Civilisation Anglaise")
+    // or the plural ("Anglaises"), so spell the endings out; without them the
+    // trailing word-boundary guard below makes the pattern match nothing.
+    { match: /anglais(?:e?s?)?/gi, key: "english" },
+    { match: /espagnol(?:e?s?)?/gi, key: "spanish" },
+    { match: /allemand(?:e?s?)?/gi, key: "german" },
     { match: /statistiques?/gi, key: "stats" },
     { match: /[ée]lectroniques?/gi, key: "electronics" },
     { match: /d[ée]veloppement/gi, key: "development" },
