@@ -1,12 +1,13 @@
 /**
- * B1 - absence date split crash.
+ * Regression guard for the French date parser itself.
  *
- * The bug: the card split the raw date string on "/" and indexed the parts
- * without checking the shape, so a malformed or non-slash date threw during
- * render and took the whole list down.
- *
- * The fix routes through `parseFrDate`, which returns null for anything it
- * cannot parse, and the card falls back to rendering the raw string.
+ * Scope note: this file does NOT cover the B1 absence-card crash. Both
+ * `parseFrDate` and `frDateToIso` predate the fix, so every test here passes on
+ * the broken tree — it guards the parser against future regressions, not the
+ * bug. The component-level coverage for B1 lives in
+ * `src/pages/absences/absences-card.render.test.tsx`, which renders the card and
+ * fails 10/17 with `TypeError: Cannot read properties of undefined (reading
+ * 'length')` when the old split-based code is restored.
  */
 import { describe, expect, it } from "vitest";
 import { frDateToIso, parseFrDate } from "@/lib/utils/grades";
