@@ -147,6 +147,18 @@ export const WelcomeHeader = ({ firstName }: { firstName: string }) => {
 
 const MESSAGE_DURATION = 8;
 
+/**
+ * Row and button classes for the important-message page indicators.
+ *
+ * The button used to be `h-3` (12 CSS px) with a 4px bar inside it, which is
+ * half of the 24px minimum target size WCAG 2.5.8 asks for — and this is a
+ * thumb-reached control in a mobile-first app. The button is now `h-6` (24px)
+ * while the visible bar stays 4px, and the row pulls the extra 12px back with
+ * `-my-1.5` so nothing around it moves.
+ */
+export const messageDotRowClass = "-mx-2 -mb-2 -my-1.5 mt-3 flex items-center gap-1.5";
+export const messageDotClass = "group flex h-6 flex-1 cursor-pointer items-center";
+
 const Segment = ({
     active,
     autoplay,
@@ -283,7 +295,7 @@ export const ImportantMessage = ({
                 </motion.div>
 
                 {count > 1 && (
-                    <div className="-mx-2 -mb-2 mt-3 flex items-center gap-1.5">
+                    <div className={messageDotRowClass}>
                         {messages.map((entry, i) => {
                             const active = i === index;
 
@@ -296,7 +308,7 @@ export const ImportantMessage = ({
                                     })}
                                     aria-current={active}
                                     onClick={() => goTo(i)}
-                                    className="group flex h-3 flex-1 cursor-pointer items-center"
+                                    className={messageDotClass}
                                 >
                                     <Segment
                                         active={active}

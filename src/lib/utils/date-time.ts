@@ -473,3 +473,24 @@ export const formatDistanceToNow = (value: Date | number | string, options?: { l
 export const getDayPickerLocale = (lang?: string): { code: string } => ({
     code: localeTag(lang),
 });
+
+/**
+ * Formats a "last updated" timestamp for display, or returns null when there is
+ * nothing honest to show.
+ *
+ * TanStack Query reports `dataUpdatedAt === 0` until a query has resolved at
+ * least once. Zero is a *valid* epoch, so formatting it unconditionally renders
+ * "jeudi 1 janv. 01h00" (Europe/Paris) on a cold cache — a fabricated 1970 date
+ * shown as if it were the real last refresh. Callers must treat null as "omit
+ * the label" rather than substituting a placeholder date.
+ */
+export function formatLastUpdated(
+    value: number | null | undefined,
+    locale?: LocaleArg,
+    pattern = "EEEE d MMM HH'h'mm"
+): string | null {
+    if (value === null || value === undefined) return null;
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const out = format(value, pattern, { locale });
+    return out === "Invalid Date" ? null : out;
+}

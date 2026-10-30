@@ -24,7 +24,7 @@ import { UserEvent } from "@/types/data";
 import { PreparedLesson } from "@/types/home";
 import { DrawerPlanningContent } from "@/components/drawer-planning-content";
 import { FreeRoomsView } from "./free-rooms-view";
-import { addMinutes, format, getDateLocale } from "@/lib/utils/date-time";
+import { addMinutes, formatLastUpdated, getDateLocale } from "@/lib/utils/date-time";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import { exportCalendar } from "@/lib/utils/exportCalendar";
@@ -78,6 +78,13 @@ export function PlanningPage() {
     );
 
     const isBusy = (isWarming && lessons.length === 0) || isLoading;
+
+    // `dataUpdatedAt` is 0 until the query resolves; formatting it would print
+    // the 1970 epoch as if it were a real refresh time. Null means "omit".
+    const lastUpdated = formatLastUpdated(
+        dataUpdatedAt,
+        getDateLocale(i18n.language)
+    );
 
     const handleRefresh = () => refetch();
 
@@ -240,16 +247,11 @@ export function PlanningPage() {
                                 setDrawerOpen(true);
                             }}
                         />
-                        <div className="text-sm font-semibold mt-2 ml-2 text-mauria-purple dark:text-gray-300">
-                            {t("schedulePage.lastUpdate")}{" "}
-                            {format(
-                                new Date(dataUpdatedAt),
-                                "EEEE d MMM HH'h'mm",
-                                {
-                                    locale: getDateLocale(i18n.language),
-                                }
-                            )}
-                        </div>
+                        {lastUpdated && (
+                            <div className="text-sm font-semibold mt-2 ml-2 text-mauria-purple dark:text-gray-300">
+                                {t("schedulePage.lastUpdate")} {lastUpdated}
+                            </div>
+                        )}
                         <Button
                             className="mt-2"
                             onClick={handleExport}

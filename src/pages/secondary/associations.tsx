@@ -25,6 +25,40 @@ import {
 
 const formLink = "https://forms.office.com/e/Kpx2fP8Gh1";
 
+/**
+ * Card title classes.
+ *
+ * Three separate things had to change; each was measured at 390x844 on
+ * `/associations`, comparing the text's Range rects against the card's
+ * clipping box.
+ *
+ * 1. The heading was `display: flex`. That turns its text into an anonymous
+ *    flex item, and `overflow-wrap: break-word` does not apply to flex items —
+ *    so "Dia'Erasmus/Dia'Rupture" could never wrap, no matter what else was
+ *    set. It is `block` now (`min-h-[2.5rem]` + `flex items-center` moved to a
+ *    wrapper) so the text is ordinary inline content that can break.
+ * 2. `flex-1` implies `flex-basis: 0%`, but a flex item still defaults to
+ *    `min-width: auto` (min-content). `min-w-0` on both the heading and its
+ *    row is what actually lets them shrink; without it the heading stayed
+ *    158px wide inside a 115px box.
+ * 3. `break-words` is kept so a long unbroken token breaks rather than
+ *    overflowing once the box is allowed to shrink.
+ *
+ * Measured before: text 158px wide in a 115px box, 34px past the card edge
+ * ("MADA (Construisonspourmadagascar)" was 74px past). After: no text extends
+ * beyond its card at 390x844, 320x568 or 1440x900.
+ */
+export const associationTitleClass =
+    "block min-w-0 break-words text-sm font-semibold leading-tight text-foreground";
+
+/** Vertical centring wrapper; the heading itself must stay a block. */
+export const associationTitleBoxClass =
+    "flex min-h-[2.5rem] min-w-0 flex-1 items-center";
+
+/** The flex row that holds the logo and the title; must be allowed to shrink. */
+export const associationTitleRowClass =
+    "flex min-w-0 flex-1 items-center gap-2 text-left";
+
 const MotionCard = motion.create(Card);
 
 function AssociationImage({
@@ -137,8 +171,8 @@ export function AssociationsPage() {
                             onClick={() => handleAssociationClick(association)}
                         >
                             <CardContent className="flex h-full w-full flex-col p-2 sm:p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                    <div className="flex flex-1 items-center gap-2 text-left">
+                                <div className="flex min-w-0 items-center justify-between gap-2">
+                                    <div className={associationTitleRowClass}>
                                         <div className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded-md sm:h-10 sm:w-10">
                                             <AssociationImage
                                                 src={association.image}
@@ -147,9 +181,11 @@ export function AssociationsPage() {
                                                 fallbackClassName="h-full w-full rounded-md border border-dashed border-border/60 bg-transparent"
                                             />
                                         </div>
-                                        <h3 className="flex min-h-[2.5rem] flex-1 items-center break-words text-sm font-semibold leading-tight text-foreground">
-                                            {association.name}
-                                        </h3>
+                                        <div className={associationTitleBoxClass}>
+                                            <h3 className={associationTitleClass}>
+                                                {association.name}
+                                            </h3>
+                                        </div>
                                     </div>
                                 </div>
                                 <p className="line-clamp-2 text-xs text-muted-foreground text-left">

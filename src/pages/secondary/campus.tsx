@@ -36,7 +36,7 @@ export function CampusPage() {
     };
 
     return (
-        <PageTransition className="min-h-screen bg-mauria-bg flex flex-col">
+        <PageTransition as="main" className="min-h-screen bg-mauria-bg flex flex-col">
             <motion.div
                 className="flex-1 flex flex-col gap-4 px-6 pt-16"
                 variants={campusStagger}

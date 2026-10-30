@@ -13,6 +13,7 @@ import { useNavigate, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/components/theme-provider";
 import { preloadRoute } from "@/App";
+import { resolveActiveTab } from "@/lib/utils/nav";
 
 export default function BottomNavigation() {
     const navigate = useNavigate();
@@ -53,16 +54,7 @@ export default function BottomNavigation() {
         },
     ];
 
-    const getActive = () => {
-        if (pathname === "/") return "home";
-        if (pathname === "/planning") return "calendar";
-        if (pathname === "/grades") return "education";
-        if (pathname === "/absences") return "profile";
-        if (pathname === "/agenda") return "agenda";
-        return "home";
-    };
-
-    const active = getActive();
+    const active = resolveActiveTab(pathname);
 
     return (
         <div className="fixed z-20 bottom-0 left-0 right-0 bg-mauria-bg dark:bg-mauria-purple oled:bg-black flex w-full justify-between pb-safe-offset-4 pt-0 border-t border-mauria-border oled:border-neutral-900">

@@ -96,7 +96,7 @@ export function LoginPage() {
     };
 
     return (
-        <PageTransition>
+        <PageTransition as="main">
             <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none select-none">
                 <Meteors number={50} />
             </div>
